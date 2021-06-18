@@ -1,0 +1,71 @@
+model: &DEFAULT
+
+  # Directory setup
+  fig_dir: '../figures/2021/'
+  model_dir: 'tf_models/'
+  data_dir: 'data/'
+  param_dir: 'params/'
+  log_dir: 'logs/'
+  
+  train_data_file: 'data/train_data_kfold1.npy'
+  test_data_file: 'data/test_data_kfold1.npy'
+  colorlaw_file: 'data/F99_colorlaw.txt'
+  out_file_tail: '_minz_0pt02_physical'
+  kfold: 1
+  
+  # Outputs
+  model_summary: !!bool True
+  savefig: !!bool False
+  savemodel: !!bool True  
+  print_params: !!bool True
+  
+  # Data dimensionality
+  data_dim: 288
+  cond_dim: 1 
+  n_timestep: 32
+
+  # AE model architecture
+  encode_dims: [256, 128, 32]
+  decode_dims: [32, 128, 256]
+  latent_dims: [2, 3]
+
+  physical_latent: !!bool True
+  colorlaw_preset: !!bool True
+  use_amplitude: !!bool False
+
+  # Flow architecture
+  nlayers: 12
+  nunit: 8
+  batchnorm: !!bool False
+
+posterior:
+  <<: *DEFAULT
+
+  # Training
+  epochs: 100
+  stop_ratio: 0.001
+  max_iterations: 50
+  max_line_search_iterations: 50
+  nchains: 10
+  test_every: 10
+  seed: 13579  
+  batch_size: 171
+  
+  train_noise: !!bool False        # resample data within measurement errors
+  vary_mask: !!bool False           # mask <mask_vary_frac> of spectra for each SN
+
+  lr: !!float 0.001
+  noise_scale: !!float 1.0 
+  mask_vary_frac: !!float 0.2
+
+  rMAPini: !!bool False            # Use encoder or random MAP position to start gradient descent
+
+  train_MAP: !!bool True
+  train_amplitude: !!bool True     # Free amplitude parameter. Don't train if use_amplitude==True in network 
+  train_dtime: !!bool True         # Delta time shift for t0
+  train_bias: !!bool False         # Additive bias
+  
+  savedata: !!bool True
+
+
+

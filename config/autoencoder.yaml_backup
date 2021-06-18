@@ -1,0 +1,57 @@
+default: &DEFAULT
+
+  # directory setup
+  figdir: '../figures/2021/'
+
+  # save outputs
+  savefig: !!bool False
+  savemodel: !!bool False  
+
+  # data dimensionality
+  data_dim: 288
+  cond_dim: 1 
+  n_timestep: 24
+
+  # model architecture
+  encode_dims: [256, 128, 32]
+  decode_dims: [32, 128, 256]
+  latent_dims: [3]
+
+  physical_latent: !!bool False
+  colorlaw_preset: !!bool True
+  use_amplitude: !!bool False
+
+  # loss functions
+  iloss_reconstruction: !!bool True
+  iloss_covariance: !!bool True
+  iloss_amplitude: !!bool True
+
+  lambda_covariance: !!float 100000
+  lambda_colorlaw: !!float 0
+  lambda_amplitude: !!float 0
+
+  # training
+  epochs: 1000
+  test_every: 100
+  seed: 13579  
+  batch_size: 44 
+
+  dropout: !!bool False
+  batchnorm: !!bool False
+  kernel_regularizer: !!bool False
+  train_noise: !!bool False
+  # resample data within measurement errors
+  vary_mask: !!bool True
+  # mask <mask_vary_frac> of spectra for each SN
+
+  lr: !!float 0.001
+  dropout_rate: !!float 0.2
+  kernel_regularizer_val: !!float 0.2
+  noise_scale: !!float 1.0 
+  mask_vary_frac: !!float 0.2
+
+  # kfold cross validation
+  kfold: 0
+
+baseline:
+  <<: *DEFAULT
