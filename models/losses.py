@@ -32,8 +32,14 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
     z      = model.encode(x, cond, mask)
 
     # from latent paramaters and observation times reconstruct data
-    x_pred = model.decode(z, cond)
+    x_pred = model.decode(z, cond, mask)
 
+#    tf.print('X', x)
+#    tf.print('X_pred', x_pred)
+#    tf.print('z', z)
+#    tf.print('sigma', sigma)
+#    tf.print('mask', mask)
+    
     # RECONSTRUCTION LOSS TERM
     # Take mean of non masked latent variables. 
     # SN with more observations should be given greater weights, so take sum instead of mean
@@ -68,15 +74,23 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
         squared_loss = 0.5 * tf.keras.backend.square(error)
         linear_loss  = model.params['clip_delta'] * (tf.keras.backend.abs(error) - 0.5 * model.params['clip_delta'])
 
-        loss = tf.reduce_sum( tf.where(cond, squared_loss, linear_loss), axis=(-2, -1))
+        loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, squared_loss, linear_loss), axis=(-2, -1)))
 
-    loss_recon = tf.reduce_mean(loss)
-    loss = loss_recon
+
+    if model.params['loss_fn'].upper() == 'MAGNITUDE':
+        cond  = mask == 1.
+        loss = tf.reduce_mean(tf.reduce_sum(tf.math.abs(x - x_pred)/tf.math.abs(x) * mask, axis=(-2, -1)))
+        #        loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, (-2.5*tf.math.log( tf.math.abs(x_pred/x) )/tf.math.log(10.))**2 * mask, 0.), axis=(-2, -1)))
+        #tf.print('Prediction', x_pred/x)
+        #tf.print('Loss', tf.math.abs(x - x_pred)/x * mask)
+#        tf.print(-2.5*tf.math.log( tf.math.abs(x_pred/x) )/tf.math.log(10.) * mask)
+    #loss_recon = tf.reduce_mean(loss)
+    #loss = loss_recon
 
     # Punish overall amplitude offset of spectra from SN
     if model.params['iloss_amplitude_offset']:
-        #    loss = loss + tf.abs(tf.reduce_sum( (x - x_pred)/(sigma + 1e-9) * mask, axis=(-2, -1)))
-        loss_offset = tf.reduce_mean(tf.abs(tf.reduce_sum( (x - x_pred) * mask, axis=(-2, -1)))) 
+        ##    loss = loss + tf.abs(tf.reduce_sum( (x - x_pred)/(sigma + 1e-9) * mask, axis=(-2, -1)))
+        loss_offset = tf.reduce_mean(tf.abs(tf.reduce_sum( (x - x_pred) * mask, axis=(-2, -1))))
 
         loss += loss_offset * model.params['lambda_amplitude_offset'] 
 
@@ -103,8 +117,8 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
     # found similar in A PCA-LIKE AUTOENCODER - https://arxiv.org/abs/1904.01277
     # PCAAE: Principal Component Analysis Autoencoder for organising the latent space of generative networks - https://arxiv.org/abs/2006.07827
     if model.params['iloss_covariance']:
-        # apply covariace loss to physical latent parameters
-        # amplitude is from peculiar velocity and color is from line-of-sight dust, so these should be uncorrelated with the other latent parameters, and with each other
+        # apply covariace loss to the phycal model parameters
+        # amplitude is from peculiar velocity and color is from line-of-sight dust. So amplitude should be uncorrelated with the other latent parameters, and perhaps colour should as well.
         z_cov = z
 
         mean_z = tf.reduce_mean(z_cov, axis=0, keepdims=True)
@@ -150,6 +164,7 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
 
     # KERNEL REGULARIZER LOSS
     if model.kernel_regularizer:
+        #tf.print('Kernel regularizer loss = ', model.losses, tf.math.reduce_sum(model.losses))
         loss += tf.math.reduce_sum(model.losses)
 
     return loss, [loss]#model.params['lambda_covariance']*loss_cov]#, model.params['lambda_amplitude']*loss_amp]

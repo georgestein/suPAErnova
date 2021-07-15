@@ -7,11 +7,12 @@ model: &DEFAULT
   param_dir: 'params/'
   log_dir: 'logs/'
   
-  train_data_file: 'data/train_data_kfold1.npy'
-  test_data_file: 'data/test_data_kfold1.npy'
+  train_data_file: 'data/train_data_kfold0.npy'
+  test_data_file: 'data/test_data_kfold0.npy'
+  kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_physical'
-  kfold: 1
+  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam' #_fitcolorlaw'
+  posterior_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam' #_fitcolorlaw'
   
   # Outputs
   model_summary: !!bool True
@@ -27,11 +28,23 @@ model: &DEFAULT
   # AE model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [2, 3]
+  #encode_dims: [64, 32, 16]
+  #decode_dims: [16, 32, 64]
+  #encode_dims: [8, 16, 8]
+  #decode_dims: [8, 8, 1]
+  #encode_dims: [16, 8, 4]
+  #decode_dims: [4, 8, 16]
+  latent_dims: [2]#, 3, 4]      
 
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
-  use_amplitude: !!bool False
+  use_amplitude: !!bool True
+
+  # cuts here only effect measured model uncertainty. posterior analysis still performed on all SN
+  min_train_redshift: !!float 0.02
+  max_train_redshift: !!float 0.1
+  max_light_cut: [-5, 5]  # don't train on SN without at least 1 spectra within this range [units = days]
+  twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
 
   # Flow architecture
   nlayers: 12
@@ -41,15 +54,20 @@ model: &DEFAULT
 posterior:
   <<: *DEFAULT
 
-  # Training
-  epochs: 100
-  stop_ratio: 0.001
+  # Find MAP using lbfgs minimizer
+  find_MAP: !!bool True
+  stop_ratio: 1.0001
   max_iterations: 50
   max_line_search_iterations: 50
-  nchains: 10
+  tolerance: 0.01
+
+  # Run HMC
+  run_HMC: !!bool False #True
+
+  nchains: 1
   test_every: 10
   seed: 13579  
-  batch_size: 171
+  batch_size: 171 #171
   
   train_noise: !!bool False        # resample data within measurement errors
   vary_mask: !!bool False           # mask <mask_vary_frac> of spectra for each SN

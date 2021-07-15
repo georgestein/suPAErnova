@@ -37,11 +37,10 @@ def train_flow(data, params, verbose=False):
     optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
 
     # Mask training samples outside of (min_train_redshift < z < max_train_redshift) range                            
-    dm_redshift = (data['redshifts'] > params['min_train_redshift']) & \
-                  (data['redshifts'] < params['max_train_redshift'])
+    dm = get_train_mask(data, params)
 
-    z_latent = tf.convert_to_tensor(data['z_latent'][dm_redshift], dtype=tf.float32)
-
+    z_latent = tf.convert_to_tensor(data['z_latent'][dm], dtype=tf.float32)
+    print('Size of training data = ', z_latent.shape)
     # checkpoints
     checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_nlayers{:02d}{:s}'.format(params['model_dir'],
                                                                                               params['kfold'],
@@ -85,8 +84,8 @@ if __name__ == '__main__':
 
         encoder, decoder, AE_params = load_ae_models(params)
 
-        train_data = load_data(params['train_data_file'], print_params=params['print_params'])
-        test_data  = load_data(params['test_data_file'])
+        train_data = load_data(params['train_data_file'], print_params=params['print_params'])#, to_tensor=True)
+        test_data  = load_data(params['test_data_file'])#, to_tensor=True)
 
         # get latent representations from encoder
         train_data['z_latent'] = encoder((train_data['spectra'],train_data['times'], train_data['mask'])).numpy()

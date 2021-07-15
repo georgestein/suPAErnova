@@ -5,23 +5,6 @@ import numpy as np
 
 import models.flow
 
-'''
-def load_data(filename, print_params=False):
-    """load data from .npz files into dictionary and return"""
-    data = {}
-
-    # .npz file
-    df = np.load(filename)   
-
-    if print_params:
-        print(df.files)
-    
-    for k in df.files:
-        data[k] = df[k]
-        
-    return data
-'''
-
 def load_ae_models(params):
     """load encoder and decoder models"""                                                                                 
     ae_model_params_fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}{:s}'.format(params['kfold'],

@@ -8,6 +8,7 @@ tfd  = tfp.distributions
 
 import numpy as np
 
+#https://emcee.readthedocs.io/en/stable/tutorials/line/
 class LogPosterior(tfk.Model):
     '''Performs posterior analysis on a Probabalistic AutoEncoder (PAE: https://arxiv.org/abs/2006.05479) 
     trained on supernovae (SN) spectral timeseries. 
@@ -104,10 +105,26 @@ class LogPosterior(tfk.Model):
         latent_prior   = self.get_latent_prior()
         #         dtime_prior    = self.get_dtime_prior()
 
+        # mask spectra that move outside of time range used for fitting
+        #dtime_mask = self.get_dtime_mask()
+        #n_spectra = tf.reduce_sum(dtime_mask[..., 0], axis=1)
+        #n_spectra = self.n_spectra#tf.reduce_sum(dtime_mask[..., 0], axis=1)
+        #print(MAP[:, -1])
+        #print(n_spectra)
+        #print(self.n_spectra/n_spectra)
         # use all spectra to get total log_prob 
+#        log_posterior  = (latent_prior.log_prob(self.MAP)
+#                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0]*dtime_mask[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
+
         log_posterior  = (latent_prior.log_prob(self.MAP)
                           + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
+        # Try to use MAPE or magnitude error
+        # Does not work with lbfgs, as the Hessian (second derivatives) is not defined
+        # See https://stats.stackexchange.com/questions/316076/gradient-and-hessian-of-the-mape
+        #log_posterior = (latent_prior.log_prob(self.MAP)
+        #                  + tf.reduce_sum(likelihood.log_prob(self.mask_x*0)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
+        #tf.print('Likelihood = ', tf.shape(likelihood.log_prob(self.mask_x*0)*self.mask_x[..., 0]), likelihood.log_prob(self.mask_x*0)*self.mask_x[..., 0])
 #        tf.print(log_posterior)
 
 #             # get log_prob for each spectra, so can ignore ones with worst fit
@@ -125,18 +142,17 @@ class LogPosterior(tfk.Model):
 
         return log_posterior
 
-
     def fwd_pass(self):  
         z_    = self.get_z()
         
         if self.params['use_amplitude']:
             # overall amplitude factor learned in Autoencoder
             # first latent variable is amplitude
-            spec_ = self.decoder((z_, self.x_c + self.dtime[..., None, None]))
+            spec_ = self.decoder((z_, self.x_c + self.dtime[..., None, None], self.mask_x))
 
         else:
             # overall amplitude is external free paramater
-            spec_ = self.amplitude[..., None, None] * self.decoder((z_, self.x_c + self.dtime[..., None, None]))
+            spec_ = self.amplitude[..., None, None] * self.decoder((z_, self.x_c + self.dtime[..., None, None], self.mask_x))
 
         spec_ = spec_ + self.bias[..., None, None]
 
@@ -158,7 +174,9 @@ class LogPosterior(tfk.Model):
                         x_ref_max=self.sigma_time_bin_cent[-1], 
                         y_ref=self.sigma_time_grid))# fill_value='extrapolate')
 
-        sigma_     = tf.sqrt(sigmai_**2 + self.sigma_x**2)
+#        sigma_     = tf.sqrt(sigmai_**2 + self.sigma_x**2)
+        sigma_     = tf.sqrt( (spec_*sigmai_)**2 + self.sigma_x**2)
+#        sigma_     = sigmai_
 
         # set missing values to 1 for all times
         sigma_ = sigma_*self.mask_x + (1-self.mask_x)
@@ -170,7 +188,16 @@ class LogPosterior(tfk.Model):
         likelihood = tfd.Independent(tfd.MultivariateNormalDiag(loc=spec_*self.mask_x,
                                                                 scale_diag=sigma_),
                                      reinterpreted_batch_ndims=0)
-        
+        '''
+        cond  = self.mask_x == 1.
+
+        tf.print('ratio', spec_, self.x)
+        tf.print('Mean', tf.where(cond, tf.math.log((tf.math.abs(spec_/self.x))), 0.))
+        tf.print('sigma', tf.reduce_min(sigma_), tf.reduce_max(sigma_))
+        likelihood = tfd.Independent(tfd.MultivariateNormalDiag(loc=tf.where(cond, tf.math.log(tf.math.abs(spec_/self.x)), 0.),
+                                                                scale_diag=sigma_),
+                                     reinterpreted_batch_ndims=0)
+        '''
         return likelihood
 
     def get_latent_prior(self):
@@ -184,6 +211,17 @@ class LogPosterior(tfk.Model):
 
         return tfd.Normal(loc=dtime_mean, scale=dtime_std)
 
+    def get_dtime_mask(self):
+        # mask spectra if they fall outside fitted time range
+        # such that they do not affect fits
+        timei = self.x_c + self.dtime[..., None, None]
+
+        dm = (timei >= 0) & (timei <= 1)
+
+        dtime_mask = tf.where(dm, 1., 0.)
+
+        return dtime_mask
+    
     def get_amplitude_prior(self):
         amplitude_mean = 1.0
         amplitude_std  = 0.4
@@ -193,13 +231,41 @@ class LogPosterior(tfk.Model):
 
 def get_hessian(model, map_parameters, trainable_params):
     """Get Hessian of model parameters for each SN"""
+    nhess = map_parameters.shape[0]
+
+    with tf.GradientTape(persistent=True) as tape:
+        y = -model(map_parameters)#/10000
+        print('y = ', y)
+
+        grads = tape.gradient(y, [map_parameters])
+        print('GRADS', grads)
+
+    hessians = tape.batch_jacobian(grads[0], map_parameters, experimental_use_pfor=False)
+#    hessians = tape.jacobian(grads, map_parameters, experimental_use_pfor=False)
+#    print('hessians = ', hessians)
+#    flattened_grads = tf.concat([tf.reshape(grad, [nhess, -1]) for grad in grads], axis=1)
+#    print('flattened_grads  = ', flattened_grads)
+
+    print('hessians = ', hessians)
+    # split hessians by sample
+    hess_final = np.zeros([nhess, tf.shape(flattened_grads)[1], tf.shape(flattened_grads)[1]]).astype(np.float32)
+    for ihess in range(nhess):
+        hess_i = [hess[ihess,:,ihess:ihess+1] for hess in hessians]
+        hess_final[ihess] = tf.concat([tf.reshape(hess, [hess.shape[0], -1]) for hess in hess_i], 1)
+
+    return tf.convert_to_tensor(hess_final)
+    '''
+    return hessians
+    '''
+def get_hessian_paramlist(model, map_parameters, trainable_params):
+    """Get Hessian of model parameters for each SN"""
     print(map_parameters.shape)
     nhess = map_parameters.shape[0]
     with tf.GradientTape(persistent=True) as tape:
         y = -model(map_parameters)
 
         grads = tape.gradient(y, trainable_params)
-
+        tf.print(tf.shape(grads))
         flattened_grads = tf.concat([tf.reshape(grad, [nhess, -1]) for grad in grads], axis=1)
 
     hessians = tape.jacobian(flattened_grads, trainable_params, experimental_use_pfor=False)

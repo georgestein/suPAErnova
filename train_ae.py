@@ -5,28 +5,31 @@ print('tensorflow version: ', tf.__version__)
 print('devices: ', tf.config.list_physical_devices('GPU') )
 
 import numpy as np
-import os
-import time
 
 import tensorboard.plugins.hparams as HParams
 import argparse
 
 from utils.YParams import YParams
-from utils.data_loader import load_data
+from utils.data_loader import *
 
 import models.autoencoder
 from models.losses import *
 
+import os
+import time
+import sys
 
 def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data):
     
     training_loss, training_loss_terms = 0, [0, 0]
-    if not model.params['train_noise']: 
-        noise_scale=0.
 
     # shuffle indices each epoch for batches
     # batch feeding can be improved, but the various types of specialized masks/dropout
     # are easy to implement in this non-optimized fashion
+    #tf.random.set_seed(epoch)
+    #inds = tf.range(train_data['spectra'].shape[0])
+    #tf.random.shuffle(inds)
+    #inds = tf.reshape(inds, [-1, params['batch_size']])
     np.random.seed(epoch)
     inds = np.arange(train_data['spectra'].shape[0])
     np.random.shuffle(inds)
@@ -34,8 +37,10 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
 
     if model.params['train_noise']:
         # add noise during training drawn from observational unvertainty
-        means = np.random.normal(0., 0.005, size=(train_data['sigma'].shape[0])).astype(dtype=np.float32) #
-        noise = noise_scale*np.random.normal(0., train_data['sigma']).astype(dtype=np.float32) #+ means[:, None, None]
+#        noise_vary = params['noise_scale']*tf.math.abs(tf.random.normal(train_data['mask'].shape, mean=train_data['spectra'], stddev=train_data['sigma']))
+        noise_vary = params['noise_scale']*np.abs(np.random.normal(0., train_data['sigma']).astype(np.float32))
+    else:
+        noise_vary = np.zeros(train_data['mask'].shape, dtype=np.float32)
 
     mask_vary = np.ones(train_data['mask'].shape, dtype=np.float32)
     if model.params['vary_mask']:
@@ -51,25 +56,36 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
             mask_vary[i:i+1,:nii] = mask_vary[i:i+1, np.random.rand(nii).argsort()]
             # np.take(mask_vary[i:i+1,:nii], np.random.rand(nii).argsort(), axis=1, out=mask_vary[i:i+1,:nii])
 
-    # Mask training samples outside of (min_train_redshift < z < max_train_redshift) range
-    dm_redshift = (train_data['redshifts'] > model.params['min_train_redshift']) & \
-                  (train_data['redshifts'] < model.params['max_train_redshift'])
-    mask_vary[~dm_redshift] = 0.
-
+    mask_vary[~train_data['dm']] = 0.
+    #    mask_vary = tf.convert_to_tensor(mask_vary, dtype=tf.float32)
     if epoch == 0 :
-        print("Number of training SN in redshift range: ", np.sum(dm_redshift))
-
+        print("Number of training SN to use for training: ", np.sum(train_data['dm']))
     
     # loop over batches
     for batch in range(nbatches):
-        dm_batch = inds[batch]
+        inds_batch = sorted(inds[batch])
+#        print(len(inds_batch), inds_batch, train_data['spectra'].shape, noise_vary.shape)
+#        print(inds_batch, train_data['spectra'][[1,2,3]], noise_vary[[1,2,3]])
+#        print(len(inds_batch), inds_batch, train_data['spectra'][inds_batch].shape, noise_vary[inds_batch].shape)
+
+#        print('DEBUG', inds.dtype, inds_batch, inds_batch.shape, tf.gather(train_data['spectra'], inds_batch), noise_vary.shape)
+        # tensorflow tensors do not support gathering tensors of indices as numpy would. Need to instead call tf.gather(tensor, indices). Unfortunately tf.tensor() makes training slower
+        '''
         training_loss_b, training_loss_terms_b = compute_apply_gradients_ae(model, 
-                                            train_data['spectra'][dm_batch], # + noise[dm_batch], 
-                                            train_data['times'][dm_batch],
-                                            train_data['sigma'][dm_batch],
-                                            train_data['mask'][dm_batch] * mask_vary[dm_batch],
-                                            train_data['luminosity_distance'][dm_batch],
+                                            tf.gather(train_data['spectra'], inds_batch) + tf.gather(noise_vary, inds_batch), 
+                                            tf.gather(train_data['times'], inds_batch),
+                                            tf.gather(train_data['sigma'], inds_batch),
+                                            tf.gather(train_data['mask'], inds_batch) * tf.gather(mask_vary, inds_batch),
+                                            tf.gather(train_data['luminosity_distance'], inds_batch),
                                             optimizer)
+        '''
+        training_loss_b, training_loss_terms_b = compute_apply_gradients_ae(model, 
+                                                                            train_data['spectra'][inds_batch] + noise_vary[inds_batch], 
+                                                                            train_data['times'][inds_batch],
+                                                                            train_data['sigma'][inds_batch],
+                                                                            train_data['mask'][inds_batch] * mask_vary[inds_batch],
+                                                                            train_data['luminosity_distance'][inds_batch],
+                                                                            optimizer)
 
         training_loss += training_loss_b.numpy()
         training_loss_terms += training_loss_terms_b
@@ -77,18 +93,14 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     return training_loss, training_loss_terms
 
 
-def test_step(model, test_data):  
+def test_step(model, data):  
     """Calculate test loss"""
-    mask_vary = np.ones(test_data['mask'].shape, dtype=np.float32)
+    mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
+    mask_vary[~data['dm']] = 0.
 
-    dm_redshift = (test_data['redshifts'] > model.params['min_train_redshift']) & \
-                  (test_data['redshifts'] < model.params['max_train_redshift'])
-    mask_vary[~dm_redshift] = 0.
-
-    test_loss, test_loss_terms = compute_loss_ae(model, test_data['spectra'], test_data['times'], test_data['sigma'], test_data['mask']*mask_vary, test_data['luminosity_distance'])
+    test_loss, test_loss_terms = compute_loss_ae(model, data['spectra'], data['times'], data['sigma'], data['mask']*mask_vary, data['luminosity_distance'])
 
     return test_loss, test_loss_terms
-
 
 def train_model(train_data, test_data,
                 model, optimizer=tf.keras.optimizers.Adam(1e-3)):
@@ -99,12 +111,46 @@ def train_model(train_data, test_data,
     nbatches = train_data['spectra'].shape[0]//model.params['batch_size']
     
     test_every = model.params['test_every']
+
+    train_data['dm'] = get_train_mask(train_data, model.params)
+    test_data['dm'] = get_train_mask(test_data, model.params)
+
+    '''
+    train_dm = (train_data['redshifts'] > model.params['min_train_redshift']) & \
+        (train_data['redshifts'] < model.params['max_train_redshift'])
+
+    train_dm_maxlight = (train_data['times_orig'] > model.params['max_light_cut'][0]) & \
+        (train_data['times_orig'] < model.params['max_light_cut'][1])
+
+    train_dm_maxlight = np.any(train_dm_maxlight, axis=(1,2))
+    train_dm = train_dm & train_dm_maxlight
+
+    if model.params['twins_cut']:
+        train_in_twins, train_dm_twins = get_twins_mask(train_data)
+        train_dm = train_dm & train_dm_twins
+    train_data['dm'] = train_dm 
+        
+    test_dm = (test_data['redshifts'] > model.params['min_train_redshift']) & \
+                  (test_data['redshifts'] < model.params['max_train_redshift'])
+    test_dm_maxlight = (test_data['times_orig'] > model.params['max_light_cut'][0]) & \
+\
+        (test_data['times_orig'] < model.params['max_light_cut'][1])
+
+    test_dm_maxlight = np.any(test_dm_maxlight, axis=(1,2))
+    test_dm = test_dm & test_dm_maxlight
+
+    if model.params['twins_cut']:
+        test_in_twins, test_dm_twins = get_twins_mask(test_data)
+        test_dm = test_dm & test_dm_twins
+    '''
     
     ncolumn_loss = 3
     training_loss_hist = np.zeros((model.params['epochs'], ncolumn_loss))
     test_loss_hist     = np.zeros((model.params['epochs']//test_every, ncolumn_loss))
 
+    test_loss_min = 1.e9
     for epoch in range(model.params['epochs']):
+        is_best = False
         start_time = time.time()
 
         training_loss, training_loss_terms = train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data)
@@ -127,10 +173,15 @@ def train_model(train_data, test_data,
             test_loss_hist[epoch//test_every, 2] = test_loss_terms[0].numpy()
 
             print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E}\ntest loss:  {:.2E}'.format(epoch,
-                                                                                     end_time-start_time,
-                                                                                     training_loss/nbatches,
-                                                                                     test_loss.numpy()))
-#            print('test loss terms ', test_loss_hist[epoch//test_every])
+                                                                                              end_time-start_time,
+                                                                                              training_loss/nbatches,
+                                                                                              test_loss.numpy()))
+            if test_loss.numpy() < test_loss_min:
+                print('Best test epoch so far. Saving model.')
+                is_best=True
+                test_loss_min=min(test_loss_min, test_loss.numpy())
+                save_model(model, model.params)
+                #            print('test loss terms ', test_loss_hist[epoch//test_every])
 
     return training_loss_hist, test_loss_hist
 
@@ -138,6 +189,8 @@ def train_model(train_data, test_data,
 def save_model(model, params):
 
     if params['savemodel']:
+
+
         fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}{:s}'.format(params['kfold'],
                                                                    params['latent_dim'], 
                                                                    '-'.join(str(e) for e in params['encode_dims']),
@@ -154,10 +207,21 @@ def save_model(model, params):
         save_dict['parameters'] = params
         np.save('{:s}{:s}.npy'.format(params['param_dir'], fname), save_dict)
 
-        model.encoder.save(encoder_file)
-        model.decoder.save(decoder_file)
+        if params['dropout']:
+            # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
+            # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
+            model_save = models.autoencoder.AutoEncoder(params, training=False)
 
-        
+            model_save.encoder.set_weights(model.encoder.get_weights())
+            model_save.decoder.set_weights(model.decoder.get_weights())
+
+            model_save.encoder.save(encoder_file)
+            model_save.decoder.save(decoder_file)
+
+        else:
+            model.encoder.save(encoder_file)
+            model.decoder.save(decoder_file)
+
 if __name__ == '__main__':
 
     # Set model Architecture and training params and train
@@ -169,8 +233,8 @@ if __name__ == '__main__':
     
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
     
-    train_data = load_data(params['train_data_file']) 
-    test_data  = load_data(params['test_data_file']) 
+    train_data = load_data(params['train_data_file'])#, to_tensor=True) 
+    test_data  = load_data(params['test_data_file'])#, to_tensor=True) 
     
     for il, latent_dim in enumerate(params['latent_dims']):
 
@@ -180,7 +244,7 @@ if __name__ == '__main__':
         tf.random.set_seed(params['seed'])
 
         # Create model
-        AEmodel = models.autoencoder.AutoEncoder(params)
+        AEmodel = models.autoencoder.AutoEncoder(params, training=True)
         
         # Model Summary
         if params['model_summary'] and (il == 0):
@@ -199,5 +263,5 @@ if __name__ == '__main__':
                                                optimizer)
 
         # Save
-        save_model(AEmodel, params)
+        # save_model(AEmodel, params)
 

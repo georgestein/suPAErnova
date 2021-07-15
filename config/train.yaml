@@ -7,11 +7,11 @@ autoencoder: &DEFAULT
   param_dir: 'params/'
   log_dir: 'logs/'
   
-  train_data_file: 'data/train_data_kfold1.npy'
-  test_data_file: 'data/test_data_kfold1.npy'
-  kfold: 1
+  train_data_file: 'data/train_data_kfold0.npy'
+  test_data_file: 'data/test_data_kfold0.npy'
+  kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_physical'
+  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam'
   
   # Outputs
   model_summary: !!bool True
@@ -27,46 +27,60 @@ autoencoder: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [2, 3]
+  #encode_dims: [64, 32, 16]
+  #decode_dims: [16, 32, 64]
+  #encode_dims: [8, 16, 8]
+  #decode_dims: [8, 8, 1]
+  #encode_dims: [16, 8, 4]
+  #decode_dims: [4, 8, 16]
+  latent_dims: [2]
 
+  #layer_type: 'convolution'
+  layer_type: 'dense'
+
+  kernel_size: 11
+  stride: 6            # ensure data_dim/stride is an integer 
+  
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
-  use_amplitude: !!bool False
+  use_amplitude: !!bool True
 
   # Loss functions
-  loss_fn: 'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER 
+  loss_fn: 'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
   clip_delta: !!float 10.0
   
   iloss_reconstruction: !!bool True
-  iloss_covariance: !!bool False
+  iloss_covariance: !!bool False #True
   iloss_amplitude_parameter: !!bool True
-  iloss_amplitude_offset: !!bool True 
+  iloss_amplitude_offset: !!bool False
 
-  lambda_covariance: !!float 5000000.
+  lambda_covariance: !!float 500000.
   lambda_colorlaw: !!float 0.0
-  lambda_amplitude_parameter: !!float 5000.0
-  lambda_amplitude_offset: !!float 5000.
+  lambda_amplitude_parameter: !!float 1000.0
+  lambda_amplitude_offset: !!float 1.
   
-  # Training
-  epochs: 10000
-  test_every: 1000
-  seed: 13579  
-  batch_size: 57
+  # AE Training
+  epochs: 2500
+  test_every: 100
+  seed: 13579
+  batch_size: 57 #19 #57
 
   min_train_redshift: !!float 0.02
-  max_train_redshift: !!float 1.0
+  max_train_redshift: !!float 0.1
+  max_light_cut: [-5, 5] # don't train on SN without at least 1 spectra within this range [units = days]
+  twins_cut: !!bool False           # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
   
   dropout: !!bool False
   batchnorm: !!bool False
-  kernel_regularizer: !!bool False
-  train_noise: !!bool False        # resample data within measurement errors
-  vary_mask: !!bool False          # mask <mask_vary_frac> of spectra for each SN
+  kernel_regularizer: !!bool True
+  train_noise: !!bool True        # resample data within measurement errors
+  vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
 
   lr: !!float 0.005
   dropout_rate: !!float 0.2
-  kernel_regularizer_val: !!float 0.2
+  kernel_regularizer_val: !!float 100.0
   noise_scale: !!float 1.0 
-  mask_vary_frac: !!float 0.2
+  mask_vary_frac: !!float 0.1
 
 flow:
   <<: *DEFAULT
