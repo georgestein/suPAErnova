@@ -271,7 +271,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
             
             # Construct new data for batch
             data = {}
-            data['spectra']   = data_use['spectra'][batch_start:batch_end]*10**(-0.4*0.25)
+            data['spectra']   = data_use['spectra'][batch_start:batch_end]
             data['sigma']     = data_use['sigma'][batch_start:batch_end]
             data['times']     = data_use['times'][batch_start:batch_end]
             data['redshifts'] = data_use['redshifts'][batch_start:batch_end] #* 0. + redshift
