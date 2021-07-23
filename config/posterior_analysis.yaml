@@ -11,8 +11,11 @@ model: &DEFAULT
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam' #_fitcolorlaw'
-  posterior_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam' #_fitcolorlaw'
+
+  #out_file_tail: 'test'
+  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew' #_2stage' #_covloss5e4' #_fitcolorlaw'
+  #posterior_file_tail: 'test'
+  posterior_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew_hmc_ampsamp2_offset0.25_noprior' #2stage_hmc' #_fitcolorlaw'
   
   # Outputs
   model_summary: !!bool True
@@ -34,7 +37,7 @@ model: &DEFAULT
   #decode_dims: [8, 8, 1]
   #encode_dims: [16, 8, 4]
   #decode_dims: [4, 8, 16]
-  latent_dims: [2]#, 3, 4]      
+  latent_dims: [5]#4, 5]
 
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
@@ -42,7 +45,7 @@ model: &DEFAULT
 
   # cuts here only effect measured model uncertainty. posterior analysis still performed on all SN
   min_train_redshift: !!float 0.02
-  max_train_redshift: !!float 0.1
+  max_train_redshift: !!float 1.0
   max_light_cut: [-5, 5]  # don't train on SN without at least 1 spectra within this range [units = days]
   twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
 
@@ -54,18 +57,25 @@ model: &DEFAULT
 posterior:
   <<: *DEFAULT
 
+  nchains: 25
+
   # Find MAP using lbfgs minimizer
   find_MAP: !!bool True
-  stop_ratio: 1.0001
+  stop_ratio: 0.0001
   max_iterations: 50
   max_line_search_iterations: 50
   tolerance: 0.01
 
   # Run HMC
-  run_HMC: !!bool False #True
+  run_HMC: !!bool True
+  ihmc: !!bool True # True if HMC, false if MCMC
+  num_burnin_steps: 10000
+  num_samples: 25000
+  num_leapfrog_steps: 5
+  step_size: 0.001
+  target_accept_rate: 0.651 # modifies step size to try to reach this target
 
-  nchains: 1
-  test_every: 10
+
   seed: 13579  
   batch_size: 171 #171
   

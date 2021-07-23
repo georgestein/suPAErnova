@@ -9,7 +9,7 @@ import os
 class AutoEncoder(tf.keras.Model):
     '''Autoencoder with option for fixed amplitude parameter and colorlaw of decoder 
         Modified to take in conditional vatiables (time of observation)'''
-    def __init__(self, params, training=True): 
+    def __init__(self, params, training=True, bn_moving_mean=0.): 
         super(AutoEncoder, self).__init__()
         # network dimensions and layers
         self.params = params
@@ -42,6 +42,7 @@ class AutoEncoder(tf.keras.Model):
         else:
             self.kernel_regularizer = None
 
+        self.bn_moving_mean = bn_moving_mean
 
         # set random seeds
         os.environ['PYTHONHASHSEED']=str(params['seed'])
@@ -64,6 +65,7 @@ class AutoEncoder(tf.keras.Model):
 
         # add either convolutional or fully connected block
         encode_x = encode_inputs_data
+        #encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
         for iunit, nunit in enumerate(self.params['encode_dims'][:-1]):
 #            print(iunit, encode_x.shape)
             # fully connected layer
@@ -80,29 +82,29 @@ class AutoEncoder(tf.keras.Model):
                     # convolutional layer
                     encode_x = tf.expand_dims(encode_x, axis=-1)
 
-                    encode_x = tf.keras.layers.Conv2D(nunit,
-                                                      kernel_size=(1, self.params['kernel_size']),
-                                                      strides=(1, self.params['stride']),
-                                                      activation=self.activation,
-                                                      kernel_regularizer=self.kernel_regularizer,
-                                                      padding='same',
-                                                      input_shape=(self.params['n_timestep'], self.params['data_dim']))(encode_x)
+                    encode_x = tfkl.Conv2D(nunit,
+                                           kernel_size=(1, self.params['kernel_size']),
+                                           strides=(1, self.params['stride']),
+                                           activation=self.activation,
+                                           kernel_regularizer=self.kernel_regularizer,
+                                           padding='same',
+                                           input_shape=(self.params['n_timestep'], self.params['data_dim']))(encode_x)
                 else:
                     # convolutional layer
-                    encode_x = tf.keras.layers.Conv2D(nunit,
-                                                      kernel_size=(1, self.params['kernel_size']),
-                                                      strides=(1, self.params['stride']),
-                                                      activation=self.activation,
-                                                      padding='same',
-                                                      kernel_regularizer=self.kernel_regularizer)(encode_x)#,
+                    encode_x = tfkl.Conv2D(nunit,
+                                           kernel_size=(1, self.params['kernel_size']),
+                                           strides=(1, self.params['stride']),
+                                           activation=self.activation,
+                                           padding='same',
+                                           kernel_regularizer=self.kernel_regularizer)(encode_x)#,
 
             else:
                 sys.exit('Layer type {:s} does not exist'.format(params['layer_type']))
                 
             if self.params['dropout']:
                 # dropout along features dimension, keeping dropout along time dimension consistent
-                encode_x = tf.keras.layers.Dropout(self.params['dropout_rate'],
-                                                   noise_shape=[None, 1, None])(encode_x, training=self.training)
+                encode_x = tfkl.Dropout(self.params['dropout_rate'],
+                                        noise_shape=[None, 1, None])(encode_x, training=self.training)
 
             if self.params['batchnorm']:
                 encode_x = tfkl.BatchNormalization()(encode_x)
@@ -117,12 +119,12 @@ class AutoEncoder(tf.keras.Model):
         encode_x = tfkl.concatenate([encode_x, encode_inputs_cond])
 
         # dense layers
-        encode_x = tf.keras.layers.Dense(self.params['encode_dims'][-1],
-                                         activation=self.activation,
-                                         kernel_regularizer=self.kernel_regularizer)(encode_x)
+        encode_x = tfkl.Dense(self.params['encode_dims'][-1],
+                              activation=self.activation,
+                              kernel_regularizer=self.kernel_regularizer)(encode_x)
 
-        encode_x = tf.keras.layers.Dense(self.params['latent_dim'],
-                                         kernel_regularizer=self.kernel_regularizer)(encode_x)
+        encode_x = tfkl.Dense(self.params['latent_dim'],
+                              kernel_regularizer=self.kernel_regularizer)(encode_x)
 
         
         # need to mask time samples that do not exist = take mean of non masked latent variables
@@ -136,9 +138,25 @@ class AutoEncoder(tf.keras.Model):
                 # amplitude multiplication of output
                 encode_amplitude = encode_outputs[..., 0:1] # keep last dim shape
                 encode_outputs   = encode_outputs[..., 1:]    
-                
-                # make amplitude positive by default
-#                encode_amplitude = tf.math.abs(encode_amplitude)                
+
+                if self.params['train_stage'] == 0:
+                    # set these parameters to 0 at this stage in training
+                    #encode_outputs = encode_outputs*0.
+                    encode_amplitude = encode_amplitude*0. 
+                    
+                # Make amplitude of nonmasked SN have mean 0
+                if self.params['normalize_amplitude']:
+                    # This roundabout way is required due to the dreaded TensorFlow error:
+                    # TypeError: 'Tensor' object does not support item assignment
+                    
+                    if self.training:
+                        is_kept = tf.reduce_max(encode_inputs_mask[:, :, 0], axis=-1)
+                        batch_mean = tf.reduce_sum(encode_amplitude * is_kept, axis=0)/tf.reduce_sum(is_kept)
+                        encode_amplitude = tfkl.subtract([encode_amplitude, batch_mean])
+
+                    else:
+                        encode_amplitude = tfkl.subtract([encode_amplitude, tf.Variable([self.bn_moving_mean])])
+
                 encode_outputs = tfkl.concatenate([encode_amplitude, encode_outputs, encode_color])
 
             else:
@@ -160,19 +178,22 @@ class AutoEncoder(tf.keras.Model):
         if self.params['physical_latent']:
             decode_color       = tf.exp(decode_latent[..., -1:]) # ensure colorlaw latent parameter>=0
 
+            istart = 0
             if self.params['use_amplitude']:
                 decode_amplitude = decode_latent[..., 0:1]
-                
-                decode_x = tfkl.concatenate([decode_latent[..., 1:-1], decode_inputs_cond])        
-            else:
-                decode_x = tfkl.concatenate([decode_latent[..., :-1], decode_inputs_cond])
+                istart = 1
 
+            # add in latent paramater after first layer
+            decode_x = tfkl.concatenate([decode_latent[..., istart:-1], decode_inputs_cond])
+            #decode_x = decode_latent[..., istart:-1]
         else:
             decode_x = tfkl.concatenate([decode_latent, decode_inputs_cond])
 
         decode_x = tf.keras.layers.Dense(self.params['decode_dims'][0],
                                          activation=self.activation,
                                          kernel_regularizer=self.kernel_regularizer)(decode_x)
+
+        #decode_x = tfkl.concatenate([decode_x, decode_inputs_cond])
         # add either convolutional or fully connected block
         for iunit, nunit in enumerate(self.params['decode_dims'][1:]):
 

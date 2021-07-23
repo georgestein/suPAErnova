@@ -11,7 +11,8 @@ autoencoder: &DEFAULT
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_meandeltam'
+  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew'#_covloss_test'
+  #out_file_tail: 'test'
   
   # Outputs
   model_summary: !!bool True
@@ -33,7 +34,7 @@ autoencoder: &DEFAULT
   #decode_dims: [8, 8, 1]
   #encode_dims: [16, 8, 4]
   #decode_dims: [4, 8, 16]
-  latent_dims: [2]
+  latent_dims: [5]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -44,17 +45,18 @@ autoencoder: &DEFAULT
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
   use_amplitude: !!bool True
+  normalize_amplitude: !!bool True
 
   # Loss functions
   loss_fn: 'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
   clip_delta: !!float 10.0
   
   iloss_reconstruction: !!bool True
-  iloss_covariance: !!bool False #True
-  iloss_amplitude_parameter: !!bool True
+  iloss_covariance: !!bool True
+  iloss_amplitude_parameter: !!bool False
   iloss_amplitude_offset: !!bool False
 
-  lambda_covariance: !!float 500000.
+  lambda_covariance: !!float 50000.
   lambda_colorlaw: !!float 0.0
   lambda_amplitude_parameter: !!float 1000.0
   lambda_amplitude_offset: !!float 1.

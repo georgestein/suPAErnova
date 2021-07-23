@@ -116,8 +116,9 @@ class LogPosterior(tfk.Model):
 #        log_posterior  = (latent_prior.log_prob(self.MAP)
 #                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0]*dtime_mask[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
-        log_posterior  = (latent_prior.log_prob(self.MAP)
-                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
+#        log_posterior  = (latent_prior.log_prob(self.MAP)
+#                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
+        log_posterior  = tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra #+ dtime_prior.log_prob(self.dtime)
 
         # Try to use MAPE or magnitude error
         # Does not work with lbfgs, as the Hessian (second derivatives) is not defined
@@ -207,7 +208,7 @@ class LogPosterior(tfk.Model):
 
     def get_dtime_prior(self):
         dtime_mean = 0.0
-        dtime_std  = 0.01 #0.01
+        dtime_std  = 0.01 #0.01x
 
         return tfd.Normal(loc=dtime_mean, scale=dtime_std)
 
@@ -223,8 +224,8 @@ class LogPosterior(tfk.Model):
         return dtime_mask
     
     def get_amplitude_prior(self):
-        amplitude_mean = 1.0
-        amplitude_std  = 0.4
+        amplitude_mean = 0.0
+        amplitude_std  = 0.2
 
         return tfd.Normal(loc=amplitude_mean, scale=amplitude_std)
 

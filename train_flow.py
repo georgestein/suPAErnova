@@ -50,7 +50,7 @@ def train_flow(data, params, verbose=False):
     cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath,
                                                          save_weights_only=True,
                                                          verbose=1,
-                                                         save_freq=100)
+                                                         save_freq=min(100, params['epochs_flow']))
 
     NFmodel, flow = models.flow.normalizing_flow(params, optimizer=optimizer)
 

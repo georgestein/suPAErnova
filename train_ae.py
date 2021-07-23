@@ -92,6 +92,31 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
 
     return training_loss, training_loss_terms
 
+def calculate_amplitude_batches(model, data, nbatches):
+
+    inds = np.arange(data['spectra'].shape[0])
+    inds = inds.reshape(-1, params['batch_size'])
+
+    mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
+    mask_vary[~data['dm']] = 0.
+
+    A_mean = 0
+    total_dm = 0
+    for batch in range(nbatches):
+        inds_batch = sorted(inds[batch])
+
+        z = model.encode(data['spectra'][inds_batch],
+                          data['times'][inds_batch],
+                          data['mask'][inds_batch] * mask_vary[inds_batch]).numpy()
+
+        
+        dm = mask_vary[inds_batch, 0, 0] == 1.
+        A_mean += np.sum(z[dm, 0])
+
+    A_mean /= data['dm'].sum()
+    A_mean = np.float32(A_mean)
+
+    return A_mean
 
 def test_step(model, data):  
     """Calculate test loss"""
@@ -180,13 +205,13 @@ def train_model(train_data, test_data,
                 print('Best test epoch so far. Saving model.')
                 is_best=True
                 test_loss_min=min(test_loss_min, test_loss.numpy())
-                save_model(model, model.params)
+                save_model(model, model.params, train_data, nbatches)
                 #            print('test loss terms ', test_loss_hist[epoch//test_every])
 
     return training_loss_hist, test_loss_hist
 
 
-def save_model(model, params):
+def save_model(model, params, data, nbatches):
 
     if params['savemodel']:
 
@@ -207,12 +232,27 @@ def save_model(model, params):
         save_dict['parameters'] = params
         np.save('{:s}{:s}.npy'.format(params['param_dir'], fname), save_dict)
 
-        if params['dropout']:
+        if params['dropout'] or params['normalize_amplitude']:
             # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
             # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
-            model_save = models.autoencoder.AutoEncoder(params, training=False)
 
-            model_save.encoder.set_weights(model.encoder.get_weights())
+            if model.params['use_amplitude'] and model.params['normalize_amplitude']:
+                # create new model without normalization on amplitude
+                # use this model to calculate mean amplitude
+                model_save = models.autoencoder.AutoEncoder(params, training=False, bn_moving_mean=0.)
+                model_save.encoder.set_weights(model.encoder.get_weights())
+                bn_moving_mean = calculate_amplitude_batches(model_save, data, nbatches)
+
+                # create new model with mean normalization on amplitude
+                model_save = models.autoencoder.AutoEncoder(params, training=False, bn_moving_mean=bn_moving_mean)
+                model_save.encoder.set_weights(model.encoder.get_weights())
+                bn_moving_mean = calculate_amplitude_batches(model_save, data, nbatches)
+
+
+            else:
+                model_save = models.autoencoder.AutoEncoder(params, training=False)
+                model_save.encoder.set_weights(model.encoder.get_weights())
+                
             model_save.decoder.set_weights(model.decoder.get_weights())
 
             model_save.encoder.save(encoder_file)
@@ -241,6 +281,7 @@ if __name__ == '__main__':
         optimizer  = tf.keras.optimizers.Adam(params['lr'])
 
         params['latent_dim'] = latent_dim
+        params['train_stage'] = 0
         tf.random.set_seed(params['seed'])
 
         # Create model
@@ -262,6 +303,18 @@ if __name__ == '__main__':
                                                AEmodel, 
                                                optimizer)
 
+
+        # Second train stage
+        params['train_stage'] = 1
+        AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)
+        AEmodel_second.encoder.set_weights(AEmodel.encoder.get_weights())
+        AEmodel_second.decoder.set_weights(AEmodel.decoder.get_weights())
+
+        optimizer  = tf.keras.optimizers.Adam(params['lr'])
+        training_loss, test_loss = train_model(train_data, 
+                                               test_data,
+                                               AEmodel_second, 
+                                               optimizer)
         # Save
         # save_model(AEmodel, params)
 

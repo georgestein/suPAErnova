@@ -31,7 +31,7 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
     # get latent paramaters
     z      = model.encode(x, cond, mask)
 
-    # from latent paramaters and observation times reconstruct data
+    # from latent parameters and observation times reconstruct data
     x_pred = model.decode(z, cond, mask)
 
 #    tf.print('X', x)
@@ -116,16 +116,29 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
     # want to add loss to uncorrelate latent features
     # found similar in A PCA-LIKE AUTOENCODER - https://arxiv.org/abs/1904.01277
     # PCAAE: Principal Component Analysis Autoencoder for organising the latent space of generative networks - https://arxiv.org/abs/2006.07827
-    if model.params['iloss_covariance']:
+    if model.params['iloss_covariance'] and (model.params['train_stage'] > 0):
         # apply covariace loss to the phycal model parameters
         # amplitude is from peculiar velocity and color is from line-of-sight dust. So amplitude should be uncorrelated with the other latent parameters, and perhaps colour should as well.
         z_cov = z
+        is_kept = tf.reduce_max(mask, axis=-2)
 
-        mean_z = tf.reduce_mean(z_cov, axis=0, keepdims=True)
-        mz = tf.matmul(tf.transpose(mean_z), mean_z)
-        vz = tf.matmul(tf.transpose(z_cov), z_cov)/tf.cast(tf.shape(z_cov)[0], tf.float32)
-        cov_z = (vz - mz)/mz # normalize covariance, else latent variables are just pushed to small numbers
+        mean_z = tf.reduce_sum(z_cov*is_kept, axis=0, keepdims=True)/tf.reduce_sum(is_kept)
 
+        # subtract mean from latent variables
+        z_cov = z_cov - mean_z
+        
+        #mz = tf.matmul(tf.transpose(mean_z), mean_z)
+        cov_z = tf.matmul(tf.transpose(z_cov), z_cov)/tf.cast(tf.reduce_sum(is_kept), tf.float32)
+
+        std_z = tf.sqrt( tf.reduce_sum( (z_cov*is_kept)**2, axis=0)/tf.reduce_sum(is_kept)) # mean has already been subtracted
+        #tf.print('STD', std_z)
+        std_z = tf.matmul(tf.expand_dims(std_z, axis=-1), tf.expand_dims(std_z, axis=0))
+        #tf.print('STD', std_z)
+        #tf.print('MZ', mz)
+        #cov_z = vz #/mz # normalize covariance, else latent variables are just pushed to small numbers
+
+        #tf.print('COV_z', cov_z)
+        #tf.print('COV_z/STD', cov_z/std_z)
         # punishes all off-diagonal covariance elements
         #loss_cov = tf.reduce_sum(tf.square(cov_z - tf.math.multiply(cov_z, tf.eye(cov_z.shape[1]))))
 
@@ -140,7 +153,7 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
             cov_mask[0, 0]  = 0.  # corners
 
         cov_mask[istart:, istart:] = 0. # central region
-        
+
         cov_mask = tf.convert_to_tensor(cov_mask)
         loss_cov = tf.reduce_sum(tf.square(tf.math.multiply(cov_z, cov_mask))) 
 
