@@ -2,7 +2,8 @@ model: &DEFAULT
 
   # Directory setup
   fig_dir: '../figures/2021/'
-  model_dir: 'tf_models/'
+  output_dir: 'outputs/'
+  model_dir: 'outputs/tensorflow_models/'
   data_dir: 'data/'
   param_dir: 'params/'
   log_dir: 'logs/'
@@ -12,10 +13,10 @@ model: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  #out_file_tail: 'test'
-  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew' #_2stage' #_covloss5e4' #_fitcolorlaw'
-  #posterior_file_tail: 'test'
-  posterior_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew_hmc_ampsamp2_offset0.25_noprior' #2stage_hmc' #_fitcolorlaw'
+  out_file_tail: 'test'
+  #out_file_tail: '_minz_0pt02_data_augment_decorrelatedust_newvar'
+  posterior_file_tail: 'test'
+  #posterior_file_tail: '_minz_0pt02_data_augment_decorrelatedust_newvar'#_mae' 
   
   # Outputs
   model_summary: !!bool True
@@ -31,13 +32,11 @@ model: &DEFAULT
   # AE model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  #encode_dims: [64, 32, 16]
-  #decode_dims: [16, 32, 64]
   #encode_dims: [8, 16, 8]
   #decode_dims: [8, 8, 1]
   #encode_dims: [16, 8, 4]
   #decode_dims: [4, 8, 16]
-  latent_dims: [5]#4, 5]
+  latent_dims: [3]#, 4, 5]
 
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
@@ -45,7 +44,7 @@ model: &DEFAULT
 
   # cuts here only effect measured model uncertainty. posterior analysis still performed on all SN
   min_train_redshift: !!float 0.02
-  max_train_redshift: !!float 1.0
+  max_train_redshift: !!float 0.1
   max_light_cut: [-5, 5]  # don't train on SN without at least 1 spectra within this range [units = days]
   twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
 
@@ -57,27 +56,26 @@ model: &DEFAULT
 posterior:
   <<: *DEFAULT
 
-  nchains: 25
+  nchains: 1 #25
 
   # Find MAP using lbfgs minimizer
   find_MAP: !!bool True
   stop_ratio: 0.0001
-  max_iterations: 50
+  max_iterations: 5 #2500
   max_line_search_iterations: 50
   tolerance: 0.01
 
   # Run HMC
   run_HMC: !!bool True
   ihmc: !!bool True # True if HMC, false if MCMC
-  num_burnin_steps: 10000
-  num_samples: 25000
+  num_burnin_steps: 100 #00
+  num_samples: 100 #00
   num_leapfrog_steps: 5
   step_size: 0.001
   target_accept_rate: 0.651 # modifies step size to try to reach this target
 
-
   seed: 13579  
-  batch_size: 171 #171
+  batch_size: 171
   
   train_noise: !!bool False        # resample data within measurement errors
   vary_mask: !!bool False           # mask <mask_vary_frac> of spectra for each SN

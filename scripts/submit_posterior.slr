@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#SBATCH --time=03:00:00
+#SBATCH -C gpu
+#SBATCH --account=cusp
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=20
+#SBATCH -o scripts/sout/newflow_dtimetrain_3dim.out
+
+
+conda activate tfp
+srun python posterior_analysis.py 
+#srun python posterior_analysis.py --yaml_config ./config/posterior_analysis_2.yaml

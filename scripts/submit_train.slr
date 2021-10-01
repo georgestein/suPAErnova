@@ -1,0 +1,15 @@
+#!/bin/bash -l
+#SBATCH --time=02:00:00
+#SBATCH -C gpu
+#SBATCH --account=cusp
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=10
+#SBATCH -o sout/train_dphase.out
+
+
+conda activate tfp
+srun python train_ae.py
+srun python train_flow.py 
+#srun python posterior_analysis.py --yaml_config ./config/posterior_analysis_2.yaml

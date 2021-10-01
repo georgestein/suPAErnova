@@ -2,17 +2,18 @@ autoencoder: &DEFAULT
 
   # Directory setup
   fig_dir: '../figures/2021/'
-  model_dir: 'tf_models/'
+  output_dir: 'outputs/'
+  model_dir: 'outputs/tensorflow_models/'
   data_dir: 'data/'
-  param_dir: 'params/'
+  param_dir: 'outputs/params/'
   log_dir: 'logs/'
   
   train_data_file: 'data/train_data_kfold0.npy'
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_data_augment_amplitude_maxlightcut_norma_covloss_2stagenew'#_covloss_test'
-  #out_file_tail: 'test'
+  #out_file_tail: '_minz_0pt02_data_augment_decorrelatedust_newvar'
+  out_file_tail: 'test'
   
   # Outputs
   model_summary: !!bool True
@@ -28,13 +29,7 @@ autoencoder: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  #encode_dims: [64, 32, 16]
-  #decode_dims: [16, 32, 64]
-  #encode_dims: [8, 16, 8]
-  #decode_dims: [8, 8, 1]
-  #encode_dims: [16, 8, 4]
-  #decode_dims: [4, 8, 16]
-  latent_dims: [5]
+  latent_dims: [3] #3, 4, 5]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -45,6 +40,7 @@ autoencoder: &DEFAULT
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
   use_amplitude: !!bool True
+  decorrelate_dust: !!bool False #True
   normalize_amplitude: !!bool True
 
   # Loss functions
@@ -62,26 +58,29 @@ autoencoder: &DEFAULT
   lambda_amplitude_offset: !!float 1.
   
   # AE Training
-  epochs: 2500
+  epochs: 100
   test_every: 100
   seed: 13579
   batch_size: 57 #19 #57
+  overfit: !!bool True # Save model at last epoch 
 
   min_train_redshift: !!float 0.02
-  max_train_redshift: !!float 0.1
-  max_light_cut: [-5, 5] # don't train on SN without at least 1 spectra within this range [units = days]
-  twins_cut: !!bool False           # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
+  max_train_redshift: !!float 1.0
+  max_light_cut: [-5, 5]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
   
   dropout: !!bool False
   batchnorm: !!bool False
-  kernel_regularizer: !!bool True
+  kernel_regularizer: !!bool False #True
   train_noise: !!bool True        # resample data within measurement errors
+  train_time_uncertainty: !!bool True        # resample data within measurement errors	
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
 
   lr: !!float 0.005
   dropout_rate: !!float 0.2
   kernel_regularizer_val: !!float 100.0
-  noise_scale: !!float 1.0 
+  noise_scale: !!float 1.0        # in units of observation uncertainty 
+  time_scale: !!float 0.3         # in days 
   mask_vary_frac: !!float 0.1
 
 flow:
