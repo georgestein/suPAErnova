@@ -1,11 +1,11 @@
 model: &DEFAULT
 
-  # Directory setup
+1;95;0c  # Directory setup
   fig_dir: '../figures/2021/'
+  data_dir: 'data/'
   output_dir: 'outputs/'
   model_dir: 'outputs/tensorflow_models/'
-  data_dir: 'data/'
-  param_dir: 'params/'
+  param_dir: 'outputs/params/'
   log_dir: 'logs/'
   
   train_data_file: 'data/train_data_kfold0.npy'

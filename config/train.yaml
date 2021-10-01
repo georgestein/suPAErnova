@@ -2,9 +2,9 @@ autoencoder: &DEFAULT
 
   # Directory setup
   fig_dir: '../figures/2021/'
+  data_dir: 'data/'
   output_dir: 'outputs/'
   model_dir: 'outputs/tensorflow_models/'
-  data_dir: 'data/'
   param_dir: 'outputs/params/'
   log_dir: 'logs/'
   
