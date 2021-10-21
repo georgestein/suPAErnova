@@ -81,16 +81,9 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
     if model.params['loss_fn'].upper() == 'MAGNITUDE':
         cond  = mask == 1.
         loss = tf.reduce_mean(tf.reduce_sum(tf.math.abs(x - x_pred)/tf.math.abs(x) * mask, axis=(-2, -1)))
-        #        loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, (-2.5*tf.math.log( tf.math.abs(x_pred/x) )/tf.math.log(10.))**2 * mask, 0.), axis=(-2, -1)))
-        #tf.print('Prediction', x_pred/x)
-        #tf.print('Loss', tf.math.abs(x - x_pred)/x * mask)
-#        tf.print(-2.5*tf.math.log( tf.math.abs(x_pred/x) )/tf.math.log(10.) * mask)
-    #loss_recon = tf.reduce_mean(loss)
-    #loss = loss_recon
 
     # Punish overall amplitude offset of spectra from SN
     if model.params['iloss_amplitude_offset']:
-        ##    loss = loss + tf.abs(tf.reduce_sum( (x - x_pred)/(sigma + noise_floor) * mask, axis=(-2, -1)))
         loss_offset = tf.reduce_mean(tf.abs(tf.reduce_sum( (x - x_pred) * mask, axis=(-2, -1))))
 
         loss += loss_offset * model.params['lambda_amplitude_offset'] 
@@ -101,7 +94,7 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
 #        mean_z = tf.reduce_sum(z[:,0]*mask_z)/sum_mask_z
 #        sig = tf.sqrt(tf.reduce_sum( (z[:,0]-mean_z)**2 * mask_z)/sum_mask_z)
 
-        #loss_amplitude = tf.reduce_sum( (z[:, 0] - 1)**2 * mask_z)/sig   
+        # loss_amplitude = tf.reduce_sum( (z[:, 0] - 1)**2 * mask_z)/sig   
 
         z_median = tfp.stats.percentile(z[:,0], 50.0, interpolation='midpoint')
         loss_amplitude = (1-z_median)**2 
@@ -127,15 +120,16 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
             z_cov = z
             
         is_kept = tf.reduce_max(mask, axis=-2)
-        mean_z = tf.reduce_sum(z_cov*is_kept, axis=0, keepdims=True)/tf.reduce_sum(is_kept)
+        num_kept = tf.cast(tf.reduce_sum(is_kept), tf.float32)
+        mean_z = tf.reduce_sum(z_cov*is_kept, axis=0, keepdims=True)/num_kept
 
         # subtract mean from latent variables
-        z_cov = z_cov - mean_z
-        
-        #mz = tf.matmul(tf.transpose(mean_z), mean_z)
-        cov_z = tf.matmul(tf.transpose(z_cov), z_cov)/tf.cast(tf.reduce_sum(is_kept), tf.float32)
+        z_cov = (z_cov - mean_z)*is_kept
 
-        std_z = tf.sqrt( tf.reduce_sum( (z_cov*is_kept)**2, axis=0)/tf.reduce_sum(is_kept)) # mean has already been subtracted
+        #mz = tf.matmul(tf.transpose(mean_z), mean_z)
+        cov_z = tf.matmul(tf.transpose(z_cov), z_cov)/num_kept
+
+        std_z = tf.sqrt( tf.reduce_sum(z_cov**2, axis=0)/num_kept ) # mean has already been subtracted
         # std A will be 0 when A is first allowed to vary, so cov/std will be nan.
         # Set a minimum value of 0.001 in this case
         std_z = tf.where( std_z < 1e-3, tf.ones(std_z.shape[0]), std_z) 
@@ -157,15 +151,16 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
             istart += 1
         if model.params['decorrelate_dust']:
             iend -= 1
-        cov_mask[istart:iend, istart:iend] = 0. # central region
+
+        if not model.params['decorrelate_all']:
+            cov_mask[istart:iend, istart:iend] = 0. # remove correlation from central region
         cov_mask = tf.convert_to_tensor(cov_mask)
         loss_cov = tf.reduce_sum(tf.square(tf.math.multiply(cov_z, cov_mask))) 
 
-        # tf.print('DEBUG COVARIANCE', loss_cov, loss_cov*model.params['lambda_covariance'])
+        # tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
         # loss_cov = tf.reduce_sum(tf.square(cov_z))
         loss += loss_cov * model.params['lambda_covariance'] 
 
-#    tf.print(loss_recon, loss_offset, loss_amplitude, loss_cov)
 #    tf.print(loss_recon, loss_offset*model.params['lambda_amplitude_offset'], loss_amplitude*model.params['lambda_amplitude_parameter'], loss_cov * model.params['lambda_covariance'])
 #         if model.params['iloss_amplitude']:
 #             # AMPLITUDE PREDICTION LOSS

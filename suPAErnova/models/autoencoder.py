@@ -16,10 +16,18 @@ class AutoEncoder(tf.keras.Model):
         self.params = params
 
         # activation functions
-        self.activation = tf.nn.relu
-        #self.activation = tf.nn.elu
-#        self.activation = tf.nn.swish
-
+        if params['activation'].upper()=='RELU':
+            self.activation = tf.nn.relu
+        elif params['activation'].upper()=='GELU':
+            self.activation = tfk.activations.gelu
+        elif params['activation'].upper()=='ELU':
+            self.activation = tf.nn.elu
+        elif params['activation'].upper()=='SWISH':
+            self.activation = tf.nn.swish
+        else:
+            out_str = "Activation {:s} not included".format(params['activation'])
+            print(out_str)
+            sys.exit(out_str)
         # training 
         self.training = training
 

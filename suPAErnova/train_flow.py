@@ -11,6 +11,7 @@ and the loss terms are specified in models/losses.py.
 import tensorflow as tf
 print('tensorflow version: ', tf.__version__)
 print('devices: ', tf.config.list_physical_devices('GPU') )
+import tensorflow_addons as tfa
 
 tfk  = tf.keras
 tfkl = tf.keras.layers
@@ -43,8 +44,13 @@ def train_flow(data, params, verbose=False):
     Can definitely be improved/should be later,
     as the flow does not always train well in high dimensions
     """
-    
-    optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
+
+    if params['optimizer'].upper() == 'ADAM':
+        optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
+    if params['optimizer'].upper() == 'ADAMW':
+        optimizer  = tfa.optimizers.AdamW(params['lr_flow'])
+    else:
+        print("Optimizer {:s} does not exist".format(params['optimizer']))
 
     # Mask training samples outside of (min_train_redshift < z < max_train_redshift) range
     dm = data_loader.get_train_mask(data, params)

@@ -6,10 +6,10 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=10
-#SBATCH -o sout/train_dphase.out
+#SBATCH -o scripts/sout/train_adamw_elu.out
 
 
 conda activate tfp
-srun python train_ae.py
-srun python train_flow.py 
+srun python suPAErnova/train_ae.py
+srun python suPAErnova/train_flow.py 
 #srun python posterior_analysis.py --yaml_config ./config/posterior_analysis_2.yaml

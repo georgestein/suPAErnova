@@ -27,10 +27,24 @@ def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
         bijectors.append(tfb.BatchNormalization(training=train_phase, name='batch_normalization'))
 
     for i in range(params['nlayers']):
-        bijectors.append(tfb.MaskedAutoregressiveFlow(shift_and_log_scale_fn=tfb.AutoregressiveNetwork(params=2, hidden_units=[params['nunit'], params['nunit']], activation='relu', use_bias=True)))
+        bijectors.append(
+            tfb.MaskedAutoregressiveFlow(
+                shift_and_log_scale_fn=tfb.AutoregressiveNetwork(params=2,
+                                                                 hidden_units=[params['nunit'], params['nunit']],
+                                                                 activation='relu',
+                                                                 use_bias=True)
+            )
+        )
         if params['batchnorm']:
-            bijectors.append(tfb.BatchNormalization(training=train_phase, name='batch_normalization'))
-        bijectors.append(tfb.Permute(permutation=permutations[i]))
+            bijectors.append(
+                tfb.BatchNormalization(training=train_phase, name='batch_normalization')
+            )
+
+        bijectors.append(
+            tfb.Permute(
+                permutation=permutations[i]
+            )
+        )
 
 
     flow = tfd.TransformedDistribution(

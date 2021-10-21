@@ -299,7 +299,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
 
             
             # Get model
-            log_posterior = models.posterior.LogPosterior(PAE, params, data, ae_noise_t_bin_cent, test_data['sigma_ae_time'])
+            log_posterior = models.posterior.LogPosterior(PAE, params, data, test_data['sigma_ae_time_tbin_cent'], test_data['sigma_ae_time'])
 
             # Parameters to save
             data_map_batch = {}            
@@ -377,13 +377,13 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                     data_map_batch['dtime_mcmc_err'] = parameters_std[:, -1]
                     log_posterior.dtime = parameters_mean[:, -1]
 
-                log_posterior.MAP = parameters_mean[:, log_posterior.istart_map:latent_dim]
-                log_posterior.MAPz = z_parameters_mean[:, :latent_dim]
+                log_posterior.MAP = parameters_mean[:, log_posterior.istart_map:params['latent_dim']]
+                log_posterior.MAPz = z_parameters_mean[:, :params['latent_dim']]
 
-                data_map_batch['u_latent_mcmc'] = parameters_mean[:, :latent_dim]
-                data_map_batch['u_latent_mcmc_err'] = parameters_std[:, :latent_dim]
-                data_map_batch['z_latent_mcmc'] = z_parameters_mean[:, :latent_dim]
-                data_map_batch['z_latent_mcmc_err'] = z_parameters_std[:, :latent_dim]
+                data_map_batch['u_latent_mcmc'] = parameters_mean[:, :params['latent_dim']]
+                data_map_batch['u_latent_mcmc_err'] = parameters_std[:, :params['latent_dim']]
+                data_map_batch['z_latent_mcmc'] = z_parameters_mean[:, :params['latent_dim']]
+                data_map_batch['z_latent_mcmc_err'] = z_parameters_std[:, :params['latent_dim']]
 
                 data_map_batch['spectra_mcmc'] = log_posterior.fwd_pass().numpy()
 
@@ -467,17 +467,16 @@ def main():
 
         # Measure ae reconstruction uncertainty as a function of time
         dm = data_loader.get_train_mask(train_data, params)
-        train_data['sigma_ae_time'], ae_noise_t_bin_edge, ae_noise_t_bin_cent = calculations.compute_sigma_ae_time(train_data['spectra'][dm], 
+        train_data['sigma_ae_time'], ae_noise_t_bin_edge, train_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(train_data['spectra'][dm], 
                                                                                                       train_data['spectra_ae'][dm], 
                                                                                                       train_data['sigma'][dm], 
                                                                                                       train_data['times'][dm])
 
         dm = data_loader.get_train_mask(test_data, params)
-        test_data['sigma_ae_time'], ae_noise_t_bin_edge, ae_noise_t_bin_cent = calculations.compute_sigma_ae_time(test_data['spectra'][dm], 
+        test_data['sigma_ae_time'], ae_noise_t_bin_edge, test_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(test_data['spectra'][dm], 
                                                                                                      test_data['spectra_ae'][dm],
                                                                                                      test_data['sigma'][dm],
                                                                                                      test_data['times'][dm])
-
 
 
         #tstrs = ['test']

@@ -11,6 +11,7 @@ and the loss terms are specified in models/losses.py.
 import tensorflow as tf
 print('tensorflow version: ', tf.__version__)
 print('devices: ', tf.config.list_physical_devices('GPU') )
+import tensorflow_addons as tfa
 
 import numpy as np
 
@@ -45,7 +46,7 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     inds = inds.reshape(-1, model.params['batch_size'])
 
     if model.params['train_noise']:
-        # add noise during training drawn from observational unvertainty
+        # add noise during training drawn from observational uncertainty
 #        noise_vary = params['noise_scale']*tf.math.abs(tf.random.normal(train_data['mask'].shape, mean=train_data['spectra'], stddev=train_data['sigma']))
         noise_vary = model.params['noise_scale']*np.abs(np.random.normal(0., train_data['sigma']).astype(np.float32))
     else:
@@ -102,7 +103,7 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
 
     return training_loss, training_loss_terms
 
-def calculate_mean_paramaters_batches(model, data, nbatches):
+def calculate_mean_parameters_batches(model, data, nbatches):
     """Calculate the mean physical latent parameters over the whole dataset"""
 
     inds = np.arange(data['spectra'].shape[0])
@@ -144,12 +145,20 @@ def test_step(model, data):
 
     return test_loss, test_loss_terms
 
-def train_model(train_data, test_data,
-                model, optimizer=tf.keras.optimizers.Adam(1e-3)):
+def train_model(train_data, test_data, model):
+    """
+    Train model.
+    """
 
     compute_apply_gradients_ae = losses.get_apply_grad_fn()
 
-    # 176 training, so batch size can be 16, 22, or 44
+    if params['optimizer'].upper() == 'ADAM':
+        optimizer  = tf.keras.optimizers.Adam(params['lr'])
+    elif params['optimizer'].upper() == 'ADAMW':
+        optimizer  = tfa.optimizers.AdamW(params['lr'])
+    else:
+        print("Optimizer {:s} does not exist".format(params['optimizer']))
+            
     nbatches = train_data['spectra'].shape[0]//model.params['batch_size']
     
     test_every = model.params['test_every']
@@ -162,6 +171,8 @@ def train_model(train_data, test_data,
     test_loss_hist     = np.zeros((model.params['epochs']//test_every, ncolumn_loss))
 
     test_loss_min = 1.e9
+    test_iteration = 0
+    test_iteration_best = 0 
     for epoch in range(model.params['epochs']):
         is_best = False
         start_time = time.time()
@@ -169,9 +180,9 @@ def train_model(train_data, test_data,
         training_loss, training_loss_terms = train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data)
         
         # get average loss over batches
-        training_loss_hist[epoch, 0]     = epoch 
-        training_loss_hist[epoch, 1]     = training_loss/nbatches
-        training_loss_hist[epoch, 2]     = training_loss_terms[0]/nbatches
+        training_loss_hist[epoch, 0] = epoch 
+        training_loss_hist[epoch, 1] = training_loss/nbatches
+        training_loss_hist[epoch, 2] = training_loss_terms[0]/nbatches
 
         # test on test spectra
         end_time = time.time()
@@ -181,40 +192,47 @@ def train_model(train_data, test_data,
 
             # Calculate test loss
             test_loss, test_loss_terms = test_step(model, test_data)
-            test_loss_hist[epoch//test_every, 0] = epoch 
-            test_loss_hist[epoch//test_every, 1] = test_loss.numpy()
-            test_loss_hist[epoch//test_every, 2] = test_loss_terms[0].numpy()
+            test_loss_hist[test_iteration, 0] = epoch 
+            test_loss_hist[test_iteration, 1] = test_loss.numpy()
+            test_loss_hist[test_iteration, 2] = test_loss_terms[0].numpy()
 
             print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E}\ntest loss:  {:.2E}'.format(epoch,
                                                                                               end_time-start_time,
                                                                                               training_loss/nbatches,
                                                                                               test_loss.numpy()))
-        if not model.params['overfit']:
+
+            previous_test_decrease = test_iteration - test_iteration_best # number of test iterations since last loss decrease
+
             if test_loss.numpy() < test_loss_min:
                 print('Best test epoch so far. Saving model.')
-                is_best=True
-                test_loss_min=min(test_loss_min, test_loss.numpy())
-                save_model(model, model.params, train_data, nbatches)
-                #            print('test loss terms ', test_loss_hist[epoch//test_every])
+                is_best = True
+                test_iteration_best = test_iteration
+                test_loss_min = min(test_loss_min, test_loss.numpy())
+                save_model(model, model.params, train_data, nbatches, is_best=is_best)
 
-        if model.params['overfit']:
-            # only save model at last epoch
-            if epoch == model.params['epochs']-1:
-                save_model(model, model.params, train_data, nbatches)
+            test_iteration += 1
+            
+        # Save model at last epoch
+        if epoch == model.params['epochs']-1:
+            save_model(model, model.params, train_data, nbatches)
 
+        else:
+            
     return training_loss_hist, test_loss_hist
 
 
-def save_model(model, params, data, nbatches):
+def save_model(model, params, data, nbatches, is_best=False):
 
     if params['savemodel']:
-
 
         fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}{:s}'.format(params['kfold'],
                                                                    params['latent_dim'], 
                                                                    '-'.join(str(e) for e in params['encode_dims']),
                                                                    params['out_file_tail'])
 
+        if is_best:
+            fname += '_best'
+            
         # Save model
         encoder_file = '{:s}/{:s}{:s}'.format(params['model_dir'], 'encoder_', fname)
         decoder_file = '{:s}/{:s}{:s}'.format(params['model_dir'], 'decoder_', fname)
@@ -235,16 +253,15 @@ def save_model(model, params, data, nbatches):
                 # use this model to calculate mean amplitude
                 model_save = models.autoencoder.AutoEncoder(params, training=False, bn_moving_mean_amplitude=0.)
                 model_save.encoder.set_weights(model.encoder.get_weights())
-                mean_amplitude, mean_color = calculate_mean_paramaters_batches(model_save, data, nbatches)
-                print('DEBUG ', mean_amplitude, mean_color)
+                mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
+
                 # create new model with mean normalization on amplitude
                 model_save = models.autoencoder.AutoEncoder(params, training=False,
                                                             bn_moving_mean_amplitude=mean_amplitude,
                                                             bn_moving_mean_color=mean_color)
 
                 model_save.encoder.set_weights(model.encoder.get_weights())
-                mean_amplitude, mean_color = calculate_mean_paramaters_batches(model_save, data, nbatches)
-                print('DEBUG ', mean_amplitude, mean_color)
+                mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
 
             else:
                 model_save = models.autoencoder.AutoEncoder(params, training=False)
@@ -276,11 +293,9 @@ def main():
 
     for il, latent_dim in enumerate(params['latent_dims']):
 
-        optimizer  = tf.keras.optimizers.Adam(params['lr'])
-
         params['latent_dim'] = latent_dim
         params['train_stage'] = 1
-        if latent_dim > 2:
+        if latent_dim > 2 and params['multistage_training']:
             params['train_stage'] = 0
         tf.random.set_seed(params['seed'])
 
@@ -300,11 +315,10 @@ def main():
         # Train
         training_loss, test_loss = train_model(train_data, 
                                                test_data,
-                                               AEmodel, 
-                                               optimizer)
+                                               AEmodel)
 
 
-        if latent_dim > 2:
+        if latent_dim > 2 and params['train_stage']==0:
             # Second train stage
             params['train_stage'] = 1
             AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)
@@ -313,12 +327,11 @@ def main():
             encoder, decoder, AE_params = model_loader.load_ae_models(params)
             AEmodel_second.encoder.set_weights(encoder.get_weights())
             AEmodel_second.decoder.set_weights(decoder.get_weights())
-            
-            optimizer  = tf.keras.optimizers.Adam(params['lr'])
+
             training_loss, test_loss = train_model(train_data, 
                                                    test_data,
-                                                   AEmodel_second, 
-                                                   optimizer)
+                                                   AEmodel_second)
+            
         # Save
         # save_model(AEmodel, params)
 

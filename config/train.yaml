@@ -12,8 +12,8 @@ autoencoder: &DEFAULT
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  #out_file_tail: '_minz_0pt02_data_augment_decorrelatedust_newvar'
-  out_file_tail: 'test'
+  out_file_tail: '_minz_0pt02_data_augment_decorrelatedust_adamw_elu'
+  #out_file_tail: 'test'
   
   # Outputs
   model_summary: !!bool True
@@ -29,18 +29,19 @@ autoencoder: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [3] #3, 4, 5]
+  latent_dims: [2, 3, 4, 5]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
 
   kernel_size: 11
   stride: 6            # ensure data_dim/stride is an integer 
-  
+
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
   use_amplitude: !!bool True
-  decorrelate_dust: !!bool False #True
+  decorrelate_dust: !!bool True
+  decorrelate_all: !!bool False
   normalize_amplitude: !!bool True
 
   # Loss functions
@@ -58,7 +59,7 @@ autoencoder: &DEFAULT
   lambda_amplitude_offset: !!float 1.
   
   # AE Training
-  epochs: 100
+  epochs: 2500
   test_every: 100
   seed: 13579
   batch_size: 57 #19 #57
@@ -75,7 +76,10 @@ autoencoder: &DEFAULT
   train_noise: !!bool True        # resample data within measurement errors
   train_time_uncertainty: !!bool True        # resample data within measurement errors	
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
-
+  multistage_training: !!bool True # Trains in 2 stages. The first does not allow the amplitude term to vary, while the second does
+  
+  optimizer: 'ADAMW' # ADAM, ADAMW
+  activation: 'ELU' # RELU, ELU, GELI, SWISH
   lr: !!float 0.005
   dropout_rate: !!float 0.2
   kernel_regularizer_val: !!float 100.0
