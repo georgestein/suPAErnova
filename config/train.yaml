@@ -12,7 +12,8 @@ autoencoder: &DEFAULT
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
-  out_file_tail: '_minz_0pt02_data_augment_decorrelatedust_adamw_elu'
+
+  out_file_tail: '_minz_0pt02_dtimecorrect'
   #out_file_tail: 'test'
   
   # Outputs
@@ -29,7 +30,7 @@ autoencoder: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [2, 3, 4, 5]
+  latent_dims: [3, 4, 5]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -42,7 +43,6 @@ autoencoder: &DEFAULT
   use_amplitude: !!bool True
   decorrelate_dust: !!bool True
   decorrelate_all: !!bool False
-  normalize_amplitude: !!bool True
 
   # Loss functions
   loss_fn: 'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
@@ -59,7 +59,7 @@ autoencoder: &DEFAULT
   lambda_amplitude_offset: !!float 1.
   
   # AE Training
-  epochs: 2500
+  epochs: 2500 # 2500
   test_every: 100
   seed: 13579
   batch_size: 57 #19 #57
@@ -67,7 +67,7 @@ autoencoder: &DEFAULT
 
   min_train_redshift: !!float 0.02
   max_train_redshift: !!float 1.0
-  max_light_cut: [-5, 5]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  max_light_cut: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
   twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
   
   dropout: !!bool False
@@ -78,9 +78,10 @@ autoencoder: &DEFAULT
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
   multistage_training: !!bool True # Trains in 2 stages. The first does not allow the amplitude term to vary, while the second does
   
-  optimizer: 'ADAMW' # ADAM, ADAMW
-  activation: 'ELU' # RELU, ELU, GELI, SWISH
-  lr: !!float 0.005
+  optimizer: 'ADAM' # ADAM, ADAMW, SGD
+  activation: 'RELU' # RELU, ELU, GELI, SWISH
+  lr: !!float 0.005 
+  lr_stage_2: !!float 0.005
   dropout_rate: !!float 0.2
   kernel_regularizer_val: !!float 100.0
   noise_scale: !!float 1.0        # in units of observation uncertainty 
@@ -90,7 +91,7 @@ autoencoder: &DEFAULT
 flow:
   <<: *DEFAULT
 
-  nlayers: 12
+  nlayers: 4 # number of layers per latent dimension
   nunit: 8
 
   # Training

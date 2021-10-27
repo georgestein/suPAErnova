@@ -45,36 +45,61 @@ import models.flow
 
 def find_MAP(model, params, verbose=False):
 
+    ind_amplitude = 0
+    ind_dtime = 0
+    if params['train_dtime']:
+        ind_amplitude = 1
+
     for ichain in range(params['nchains']):
         # Run optimization from different starting points, and keep the one with lowest negative log likelihood
         print('\n\nRunning chain: {:d}\n\n'.format(ichain))
 
         if ichain==0:
-            initial_position = model.MAP_ini.numpy()
-            if params['train_amplitude'] or params['use_amplitude']:
+            initial_position = model.MAPu_ini.numpy()
+            if params['train_amplitude']:
                 # add amplitude as first parameter
                 initial_position = np.c_[model.amplitude_ini.numpy(), initial_position]
             if params['train_dtime']:
                 # add delta time as last parameter
-                initial_position = np.c_[initial_position, model.dtime_ini.numpy()]
+                initial_position = np.c_[model.dtime_ini.numpy(), initial_position]
 
-        else:
+        if ichain > 0 and ichain <= 10:
             #initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
             initial_position = model.get_latent_prior().sample(model.nsamples).numpy() * 0.
-            if params['train_amplitude'] or params['use_amplitude']:
+            if params['train_amplitude']:
                 # replace amplitude paramater with larger variance
                 #initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
                 Amax = 0.75
                 Amin = -0.75
-                dA = (Amax-Amin)/(params['nchains']-1)
+                dA = (Amax-Amin)/(10)
                 A = np.zeros(initial_position.shape[0], dtype=np.float32) + Amin + (ichain-1)*dA
 
                 # add amplitude as first parameter
                 initial_position = np.c_[A, initial_position]
-            if params['train_dtime']:
-                initial_position = np.c_[initial_position, model.get_dtime_prior().sample(model.nsamples).numpy()]
 
-            #print(initial_position)
+            if params['train_dtime']:
+                initial_position = np.c_[model.get_dtime_prior().sample(model.nsamples).numpy(),
+                                         initial_position]
+
+        if ichain > 10:
+            # vary Av
+            initial_position = model.get_latent_prior().sample(model.nsamples).numpy() * 0.
+            
+            # replace Av paramater with larger variance
+            Avmax = 3
+            Avmin = -0.1
+            dA = (Avmax-Avmin)/(params['nchains']-10)
+            Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + (ichain-10)*dA
+
+            initial_position[:, 0] = Av
+            # add amplitude as first parameter
+
+            A = np.zeros(initial_position.shape[0], dtype=np.float32) 
+            initial_position = np.c_[A, initial_position]
+
+            if params['train_dtime']:
+                initial_position = np.c_[model.get_dtime_prior().sample(model.nsamples).numpy(),
+                                         initial_position]
 
         def func_bfgs(x):
             return tfp.math.value_and_gradient(
@@ -109,14 +134,14 @@ def find_MAP(model, params, verbose=False):
 
             negative_log_likelihood = np.array(results.objective_value)
 
-            if params['train_amplitude'] or params['use_amplitude']:
-                amplitude = np.array(results.position)[:, 0]
-                amplitude_ini = initial_position[:, 0]
+            if params['train_amplitude']:
+                amplitude = np.array(results.position)[:, ind_amplitude]
+                amplitude_ini = initial_position[:, ind_amplitude]
             if params['train_dtime']:
-                dtime = np.array(results.position)[:, -1]
+                dtime = np.array(results.position)[:, ind_dtime]
                 
-            MAP = np.array(results.position)[:, model.istart_map:params['latent_dim']]
-            MAP_ini = initial_position[:, model.istart_map:params['latent_dim']]
+            MAPu = np.array(results.position)[:, model.istart_map:]
+            MAPu_ini = initial_position[:, model.istart_map:]
 
             if params['train_dtime']:
                 dtime_ini = initial_position[:, -1]
@@ -134,15 +159,15 @@ def find_MAP(model, params, verbose=False):
 
 #            inv_hessian[dm] = np.array(results.inverse_hessian_estimate)[dm]
         
-            if params['train_amplitude'] or params['use_amplitude']:
-                amplitude[dm] = np.array(results.position)[dm, 0]
-                amplitude_ini[dm] = initial_position[dm,  0]
+            if params['train_amplitude']:
+                amplitude[dm] = np.array(results.position)[dm, ind_amplitude]
+                amplitude_ini[dm] = initial_position[dm,  ind_amplitude]
             if params['train_dtime']:
-                dtime[dm] = np.array(results.position)[dm, -1]
-                dtime_ini[dm] = initial_position[dm, -1]
+                dtime[dm] = np.array(results.position)[dm, ind_dtime]
+                dtime_ini[dm] = initial_position[dm, ind_dtime]
 
-            MAP[dm] = np.array(results.position)[dm, model.istart_map:params['latent_dim']]
-            MAP_ini[dm] = initial_position[dm, model.istart_map:params['latent_dim']]
+            MAPu[dm] = np.array(results.position)[dm, model.istart_map:]
+            MAPu_ini[dm] = initial_position[dm, model.istart_map:]
 
     print('Min found on chain {0}'.format(chain_min))
     model.chain_min = chain_min
@@ -158,10 +183,10 @@ def find_MAP(model, params, verbose=False):
     
     model.amplitude = amplitude
     model.dtime = dtime
-    model.MAP = MAP
+    model.MAPu = MAPu
     model.amplitude_ini = amplitude_ini
     model.dtime_ini = dtime_ini
-    model.MAP_ini = MAP_ini
+    model.MAPu_ini = MAPu_ini
 
     return model
 
@@ -175,12 +200,12 @@ def run_HMC(model, params, verbose=False):
 	# Run optimization from different starting points by stacking along chain dimension [0]                                                                  
      #   if ichain==0:
             # Starts at encoder value if find_MAP==False, else starts from MAP value
-    initial_position = tf.convert_to_tensor(model.MAP).numpy()
+    initial_position = tf.convert_to_tensor(model.MAPu).numpy()
     if params['train_amplitude'] or params['use_amplitude']:
         # add amplitude as first parameter
         initial_position = np.c_[tf.convert_to_tensor(model.amplitude).numpy(), initial_position]
     if params['train_dtime']:
-        initial_position = np.c_[initial_position, tf.convert_to_tensor(model.dtime).numpy()]
+        initial_position = np.c_[tf.convert_to_tensor(model.dtime).numpy(), initial_position]
 
     '''
     else:
@@ -299,12 +324,14 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
 
             
             # Get model
-            log_posterior = models.posterior.LogPosterior(PAE, params, data, test_data['sigma_ae_time_tbin_cent'], test_data['sigma_ae_time'])
+            log_posterior = models.posterior.LogPosterior(PAE, params, data,
+                                                          test_data['sigma_ae_time_tbin_cent'],
+                                                          test_data['sigma_ae_time'])
 
             # Parameters to save
             data_map_batch = {}            
                 
-            data_map_batch['u_latent_ini'] = log_posterior.MAP_ini
+            data_map_batch['u_latent_ini'] = log_posterior.MAPu_ini
             data_map_batch['amplitude_ini'] = log_posterior.amplitude_ini
             data_map_batch['dtime_ini'] = log_posterior.dtime_ini
                 
@@ -321,22 +348,17 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 zi = log_posterior.get_z()
                 
                 data_map_batch['spectra_map'] = log_posterior.fwd_pass().numpy()
-                data_map_batch['u_latent_map'] = log_posterior.MAP
+                data_map_batch['u_latent_map'] = log_posterior.MAPu
                 data_map_batch['z_latent_map'] = zi.numpy()
                 
-                if params['train_amplitude'] or params['use_amplitude']:
-                    # overall amplitude factor learned in Autoencoder
-                    data_map_batch['amplitude_map']   = log_posterior.amplitude
-                else:
-                    # overall amplitude factor added in Posterior analysis
-                    data_map_batch['amplitude_map']   = log_posterior.amplitude
+                data_map_batch['amplitude_map']   = log_posterior.amplitude
 
                 if params['train_dtime']:
                     data_map_batch['dtime_map']   = log_posterior.dtime
 
                 data_map_batch['logp_z_latent_map'] = log_posterior.flow.log_prob(log_posterior.get_z()[:, log_posterior.istart_map:])
-                data_map_batch['logp_u_latent_map'] = -1./2 * np.sum(log_posterior.MAP**2, axis=1)
-                data_map_batch['logJ_u_latent_map'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAP, event_ndims=1).numpy()
+                data_map_batch['logp_u_latent_map'] = -1./2 * np.sum(log_posterior.MAPu**2, axis=1)
+                data_map_batch['logJ_u_latent_map'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
                 
                 tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(log_posterior.num_evaluations,
                                                                                   log_posterior.amplitude,
@@ -347,15 +369,20 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
             if params['run_HMC']:
                 samples, step_sizes_final, is_accepted = run_HMC(log_posterior, params, verbose=True)            
 
-                z_samples = log_posterior.flow.bijector.forward(samples[:, :, log_posterior.istart_map:params['latent_dim']].reshape(-1, log_posterior.latent_dim_u)).numpy().reshape(samples.shape[0], samples.shape[1], log_posterior.latent_dim_u)
+                z_samples = log_posterior.flow.bijector.forward(samples[:, :, log_posterior.istart_map:].reshape(-1, log_posterior.latent_dim_u)).numpy().reshape(samples.shape[0], samples.shape[1], log_posterior.latent_dim_u)
+                ind_amplitude = 0
+                ind_dtime = 0
+                if params['train_dtime']:
+                    ind_amplitude = 1
+                    
+                data_map_batch['u_samples'] = samples[:, :, log_posterior.istart_map:]
+                if params['train_dtime']:
+                    data_map_batch['dtime_samples'] = samples[:, :, ind_dtime]
+                                
+                if params['train_amplitude']:
+                    data_map_batch['amplitude_samples'] = samples[:, :, ind_amplitude]
+                    z_samples = np.concatenate((samples[:, :, 0:ind_amplitude+1], z_samples), axis=-1)
 
-                if params['train_amplitude'] or params['use_amplitude']:
-                    z_samples = np.concatenate((samples[:, :, 0:1], z_samples), axis=-1)
-
-                data_map_batch['u_samples'] = samples[:, :, log_posterior.istart_map:params['latent_dim']]
-                data_map_batch['dtime_samples'] = samples[:, :, -1]
-                data_map_batch['amplitude_samples'] = samples[:, :, 0]
-                
                 data_map_batch['z_samples'] = z_samples
                 data_map_batch['is_accepted'] = is_accepted
                 data_map_batch['step_sizes_final'] = step_sizes_final
@@ -365,31 +392,29 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 z_parameters_mean = np.mean(z_samples, axis=0)
                 z_parameters_std  = np.std(z_samples, axis=0)
 
-                if params['use_amplitude']:
-                    log_posterior.amplitude = parameters_mean[:, 0]
-                    data_map_batch['amplitude_mcmc'] = z_parameters_mean[:,0]
-                    data_map_batch['amplitude_mcmc_err'] = z_parameters_std[:,0]
-                if params['train_amplitude']:
-                    data_map_batch['amplitude_mcmc'] = parameters_mean[:, params['latent_dim']]
-                    data_map_batch['amplitude_mcmc_err'] = parameters_std[:, params['latent_dim']]
+                log_posterior.amplitude = parameters_mean[:, ind_amplitude]
+                data_map_batch['amplitude_mcmc'] = z_parameters_mean[:,ind_amplitude]
+                data_map_batch['amplitude_mcmc_err'] = z_parameters_std[:,ind_amplitude]
+
                 if params['train_dtime']:
-                    data_map_batch['dtime_mcmc'] = parameters_mean[:, -1]
-                    data_map_batch['dtime_mcmc_err'] = parameters_std[:, -1]
-                    log_posterior.dtime = parameters_mean[:, -1]
+                    data_map_batch['dtime_mcmc'] = parameters_mean[:, ind_dtime]
+                    data_map_batch['dtime_mcmc_err'] = parameters_std[:, ind_dtime]
+                    log_posterior.dtime = parameters_mean[:, ind_dtime]
 
-                log_posterior.MAP = parameters_mean[:, log_posterior.istart_map:params['latent_dim']]
-                log_posterior.MAPz = z_parameters_mean[:, :params['latent_dim']]
+                log_posterior.MAPu  = parameters_mean[:, log_posterior.istart_map:]
+                log_posterior.MAPz = z_parameters_mean[:, log_posterior.istart_map:]
 
-                data_map_batch['u_latent_mcmc'] = parameters_mean[:, :params['latent_dim']]
-                data_map_batch['u_latent_mcmc_err'] = parameters_std[:, :params['latent_dim']]
-                data_map_batch['z_latent_mcmc'] = z_parameters_mean[:, :params['latent_dim']]
-                data_map_batch['z_latent_mcmc_err'] = z_parameters_std[:, :params['latent_dim']]
+                data_map_batch['u_latent_mcmc'] = parameters_mean[:, log_posterior.istart_map:]
+                data_map_batch['u_latent_mcmc_err'] = parameters_std[:, log_posterior.istart_map:]
+                data_map_batch['z_latent_mcmc'] = z_parameters_mean
+                data_map_batch['z_latent_mcmc_err'] = z_parameters_std
 
                 data_map_batch['spectra_mcmc'] = log_posterior.fwd_pass().numpy()
 
-                data_map_batch['logp_z_latent_mcmc'] = log_posterior.flow.log_prob(log_posterior.MAP)
-                data_map_batch['logp_u_latent_mcmc'] = -1./2 * np.sum(log_posterior.MAP**2, axis=1)
-                data_map_batch['logJ_u_latent_mcmc'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAP, event_ndims=1).numpy()
+                print(log_posterior.MAPu)
+                data_map_batch['logp_z_latent_mcmc'] = log_posterior.flow.log_prob(log_posterior.MAPu)
+                data_map_batch['logp_u_latent_mcmc'] = -1./2 * np.sum(log_posterior.MAPu**2, axis=1)
+                data_map_batch['logJ_u_latent_mcmc'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
 
             if batch_start == 0:
                 data_map = data_map_batch.copy()
@@ -437,13 +462,9 @@ def main():
     
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
 
-    if params['use_amplitude']:
-        params['train_amplitude'] = False
-
     for il, latent_dim in enumerate(params['latent_dims']):
         print('Training model with {:d} latent dimensions'.format(latent_dim))
         params['latent_dim'] = latent_dim
-
 
         # Get PAE model
         PAE = model_loader.PAE(params)
@@ -456,8 +477,8 @@ def main():
         test_data['z_latent']  = PAE.encoder((test_data['spectra'], test_data['times'], test_data['mask'])).numpy()
 
         istart = 0
-        if params['use_amplitude']:
-            istart = 1
+        if params['physical_latent']:
+            istart = 2
         train_data['u_latent'] = PAE.flow.bijector.inverse(train_data['z_latent'][:, istart:]).numpy()
         test_data['u_latent']  = PAE.flow.bijector.inverse(test_data['z_latent'][:, istart:]).numpy()
     

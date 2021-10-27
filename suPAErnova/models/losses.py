@@ -7,6 +7,7 @@ import numpy as np
 import random as rn
 from pathlib import Path
 import os
+import sys
 
 def get_apply_grad_fn():
     """
@@ -114,10 +115,10 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
         # apply covariace loss to the phycal model parameters
         # amplitude is from peculiar velocity and color is from line-of-sight dust. So amplitude should be uncorrelated with the other latent parameters, and perhaps colour should as well.
 
-        if model.params['train_stage'] == 0:
-            z_cov = z[:, 1:] # don't use amplitude == 0
-        else:
-            z_cov = z
+        #if model.params['train_stage'] == 0:
+        #    z_cov = z[:, 1:] # don't use amplitude == 0
+        
+        z_cov = z #[:, 1:]
             
         is_kept = tf.reduce_max(mask, axis=-2)
         num_kept = tf.cast(tf.reduce_sum(is_kept), tf.float32)
@@ -131,7 +132,7 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
 
         std_z = tf.sqrt( tf.reduce_sum(z_cov**2, axis=0)/num_kept ) # mean has already been subtracted
         # std A will be 0 when A is first allowed to vary, so cov/std will be nan.
-        # Set a minimum value of 0.001 in this case
+        # Set a minimum value of 0.001 to deal with this case
         std_z = tf.where( std_z < 1e-3, tf.ones(std_z.shape[0]), std_z) 
         std_z = tf.matmul(tf.expand_dims(std_z, axis=-1), tf.expand_dims(std_z, axis=0))
 
@@ -143,21 +144,23 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
         # only punish covariance of latent parameters with amplitude (first latent parameter)
         # and possibly with each other
         # Colorlaw can be correlated with non-amplitude latent parameters, as e.g. spiral galaxies host bluer, broader supernovae, which are also more likely to experience foreground dust. Or not
-        istart = 0
+        istart = 2
         iend   = cov_z.shape[0]
         #cov_mask = np.ones( (cov_z.shape[0], cov_z.shape[0]), dtype=np.float32)
         cov_mask = 1-np.eye(cov_z.shape[0]).astype(np.float32)
-        if model.params['use_amplitude'] and (model.params['train_stage'] > 0):
-            istart += 1
         if model.params['decorrelate_dust']:
-            iend -= 1
+            istart += 1
+
 
         if not model.params['decorrelate_all']:
             cov_mask[istart:iend, istart:iend] = 0. # remove correlation from central region
-        cov_mask = tf.convert_to_tensor(cov_mask)
-        loss_cov = tf.reduce_sum(tf.square(tf.math.multiply(cov_z, cov_mask))) 
 
-        # tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
+        cov_mask = tf.convert_to_tensor(cov_mask)
+
+        #tf.print(cov_z)
+        loss_cov = tf.reduce_sum(tf.square(tf.math.multiply(cov_z, cov_mask))) / tf.reduce_sum(cov_mask)
+
+        #tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
         # loss_cov = tf.reduce_sum(tf.square(cov_z))
         loss += loss_cov * model.params['lambda_covariance'] 
 

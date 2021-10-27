@@ -55,12 +55,10 @@ def train_flow(data, params, verbose=False):
     # Mask training samples outside of (min_train_redshift < z < max_train_redshift) range
     dm = data_loader.get_train_mask(data, params)
 
-    istart = 0
-    if params['use_amplitude']:
-        # If amplitude parameter is used in network than don't use this in normalizing flow
-        # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
-        # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it
-        istart = 1
+    # Don't use time shift or amplitude in normalizing flow
+    # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
+    # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it
+    istart = 2
 
     z_latent = tf.convert_to_tensor(data['z_latent'][dm, istart:], dtype=tf.float32)
 

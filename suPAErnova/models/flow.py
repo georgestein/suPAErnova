@@ -12,12 +12,10 @@ def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
     '''event_dim: dimensions of input data'''
     train_phase = True
 
-    u_latent_dim = params['latent_dim']
-    if params['use_amplitude']:
-        # If amplitude parameter is used in network than don't use this in normalizing flow
-        # Amplitue represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
-        # And this is the paramater we want to fit to get "cosmological distances"
-        u_latent_dim = params['latent_dim'] - 1
+    # Don't use time shift or amplitude in normalizing flow
+    # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
+    # And this is the paramater we want to fit to get "cosmological distances"
+    u_latent_dim = params['latent_dim'] + 1 # plus one to include color term
         
     indices = np.roll(np.arange(u_latent_dim), 1)
     permutations = [indices for ii in range(params['nlayers'])]

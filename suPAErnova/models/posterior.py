@@ -64,11 +64,11 @@ class LogPosterior(tfk.Model):
         self.latent_dim = self.encoder((self.x, self.x_c, self.mask_x)).shape[1] # latent space dimensionality
 
         self.latent_dim_u = self.latent_dim
-        self.istart_map = 0
-        if self.params['use_amplitude']:
-	    # If amplitude parameter is used in network than don't use this in normalizing flow           
-            self.istart_map = 1
-            self.latent_dim_u -= 1
+        # Don't use time shift or amplitude in normalizing flow
+        # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
+        # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it
+        self.istart_map = 2
+        self.latent_dim_u -= 2
 
         self.MAPtrue = self.flow.bijector.inverse( self.encoder((self.x, self.x_c, self.mask_x))[:, -self.latent_dim_u:] )
         
@@ -76,27 +76,24 @@ class LogPosterior(tfk.Model):
         if self.params['rMAPini']:
             print('Random initial MAPini')
 #            tf.random.set_seed(self.params['seed'])
-            self.MAP_ini       = self.get_latent_prior().sample(self.nsamples)
-            self.MAPz_ini      = self.flow.bijector.forward(self.MAP_ini) 
+            self.MAPu_ini       = self.get_latent_prior().sample(self.nsamples)
+            self.MAPz_ini      = self.flow.bijector.forward(self.MAPu_ini) 
 
             self.amplitude_ini = self.get_amplitude_prior().sample(self.nsamples)
-            if self.params['use_amplitude']:
-                self.MAPz_ini = tf.concat([self.amplitude_ini, self.MAPz_ini], axis=1)
+            self.MAPz_ini = tf.concat([self.amplitude_ini, self.MAPz_ini], axis=1)
                 
             self.dtime_ini     = self.get_dtime_prior().sample(self.nsamples)
             
         else:
-            self.MAPz_ini     = self.encoder((self.x, self.x_c, self.mask_x))
-            self.MAP_ini      = self.flow.bijector.inverse(self.MAPz_ini[:, -self.latent_dim_u:])
 
-            if self.params['use_amplitude']:
-                self.amplitude_ini = self.MAPz_ini[:, 0]  # amplitude shift, applied to all spectra from the SN
-            else:
-                self.amplitude_ini = tf.zeros([self.nsamples])
-                
-            self.dtime_ini     = tf.zeros([self.nsamples]) # time shift, applied to all spectra from the SN (assumes telescope time correct, but possible overall offset)
+            self.MAPz_ini      = self.encoder((self.x, self.x_c, self.mask_x))
+            self.MAPu_ini      = self.flow.bijector.inverse(self.MAPz_ini[:, self.istart_map:])
+
+            self.amplitude_ini = self.MAPz_ini[:, 1]  # amplitude shift, applied to all spectra from the SN
+            self.dtime_ini     = self.MAPz_ini[:, 0] # time shift, applied to all spectra from the SN (assumes telescope time correct, but possible overall offset)    
+
             
-        self.bias_ini      = tf.zeros([self.nsamples]) # bias shift, applied to all spectra from the SN
+        self.bias_ini = tf.zeros([self.nsamples]) # bias shift, applied to all spectra from the SN
         self.bias = tf.Variable(self.bias_ini)
         self.bias.assign(self.bias_ini)
 
@@ -106,14 +103,21 @@ class LogPosterior(tfk.Model):
         self.dtime = tf.Variable(self.dtime_ini)
         self.dtime.assign(self.dtime_ini)
 
-    def call(self, MAP):
+    def call(self, input_params):
 
-        if self.params['train_amplitude'] or self.params['use_amplitude']:
-            self.amplitude = MAP[:, 0]
+        inds_start_uparam = 0
+        if self.params['train_amplitude']:
+            if self.params['train_dtime']:
+                self.amplitude = input_params[:, 1]
+            else:
+                self.amplitude = input_params[:, 0]
+            inds_start_uparam += 1
+
         if self.params['train_dtime']:
-            self.dtime = MAP[:, -1]
+            self.dtime = input_params[:, 0]
+            inds_start_uparam += 1
 
-        self.MAP = MAP[:, self.istart_map:self.latent_dim]
+        self.MAPu = input_params[:, inds_start_uparam:]
 
         likelihood     = self.get_likelihood()
         latent_prior   = self.get_latent_prior()
@@ -130,7 +134,7 @@ class LogPosterior(tfk.Model):
 #        log_posterior  = (latent_prior.log_prob(self.MAP)
 #                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0]*dtime_mask[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
-        log_posterior  = (latent_prior.log_prob(self.MAP)
+        log_posterior  = (latent_prior.log_prob(self.MAPu)
                           + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
 #             # get log_prob for each spectra, so can ignore ones with worst fit
@@ -154,11 +158,11 @@ class LogPosterior(tfk.Model):
         if self.params['use_amplitude']:
             # overall amplitude factor learned in Autoencoder
             # first latent variable is amplitude
-            spec_ = self.decoder((z_, self.x_c + self.dtime[..., None, None], self.mask_x))
+            spec_ = self.decoder((z_, self.x_c, self.mask_x))
 
         else:
             # overall amplitude is external free paramater
-            spec_ = self.amplitude[..., None, None] * self.decoder((z_, self.x_c + self.dtime[..., None, None], self.mask_x))
+            spec_ = self.amplitude[..., None, None] * self.decoder((z_, self.x_c, self.mask_x))
 
         spec_ = spec_ + self.bias[..., None, None]
 
@@ -167,7 +171,10 @@ class LogPosterior(tfk.Model):
     def get_z(self):    
         '''transform from latent space of normalizing flow (u) to latent space of autoencoder (z)'''
         
-        self.MAPz = tf.concat([self.amplitude[..., None], self.flow.bijector.forward(self.MAP)], axis=1) 
+        self.MAPz = tf.concat([self.dtime[..., None],
+                               self.amplitude[..., None],
+                               self.flow.bijector.forward(self.MAPu)],
+                              axis=1) 
             
         return self.MAPz
     
@@ -301,7 +308,7 @@ def sample_from_hessian(model, hess, trainable_params, iplt, nsamp=10000):
 
     samples = np.asarray(samples).astype(np.float32)
 
-    lu = model.MAP.shape[1]
+    lu = model.MAPu.shape[1]
 
     shift   = np.concatenate([i[iplt].numpy().flatten() for i in trainable_params])
     samples += shift
@@ -317,7 +324,7 @@ def setup_trainable_parameters(model, params):
     trainable_params_label = []
     
     if params['train_MAP']:
-        trainable_params.append(model.MAP)
+        trainable_params.append(model.MAPu)
         trainable_params_label.append('MAP')
     if params['train_amplitude']:
         trainable_params.append(model.amplitude)

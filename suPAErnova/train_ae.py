@@ -72,7 +72,7 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     if model.params['train_time_uncertainty']:
         # equal sigma for all SN
         # dtime = np.random.normal(0, model.params['time_scale']/50, size=(train_data['times'].shape[0], 1, 1))
-        dtime = np.random.normal(0, train_data['dphase']/50)[:, None, None]
+        dtime = np.random.normal(0, train_data['dphase']/50)[:, None, None].astype(np.float32)
         
     if epoch == 0 :
         print("Number of training SN to use for training: ", np.sum(train_data['dm']))
@@ -112,6 +112,7 @@ def calculate_mean_parameters_batches(model, data, nbatches):
     mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
     mask_vary[~data['dm']] = 0.
 
+    dtime_mean = 0
     amp_mean = 0
     color_mean = 0
     total_dm = 0
@@ -124,17 +125,21 @@ def calculate_mean_parameters_batches(model, data, nbatches):
 
         
         dm = mask_vary[inds_batch, 0, 0] == 1.
-        amp_mean += np.sum(z[dm, 0])
-        color_mean += np.sum(z[dm, -1])
+        dtime_mean += np.sum(z[dm, 0])
+        amp_mean   += np.sum(z[dm, 1])
+        color_mean += np.sum(z[dm, 2])
 
-        
+
+    dtime_mean /= data['dm'].sum()
+    dtime_mean = np.float32(dtime_mean)
+
     amp_mean /= data['dm'].sum()
     amp_mean = np.float32(amp_mean)
 
     color_mean /= data['dm'].sum()
     color_mean = np.float32(color_mean)
 
-    return amp_mean, color_mean
+    return dtime_mean, amp_mean, color_mean
 
 def test_step(model, data):  
     """Calculate test loss"""
@@ -152,10 +157,16 @@ def train_model(train_data, test_data, model):
 
     compute_apply_gradients_ae = losses.get_apply_grad_fn()
 
-    if params['optimizer'].upper() == 'ADAM':
-        optimizer  = tf.keras.optimizers.Adam(params['lr'])
-    elif params['optimizer'].upper() == 'ADAMW':
-        optimizer  = tfa.optimizers.AdamW(params['lr'])
+    lr = model.params['lr']
+    if model.params['train_stage'] == 1:
+        lr = model.params['lr_stage_2']
+        
+    if model.params['optimizer'].upper() == 'ADAM':
+        optimizer  = tf.keras.optimizers.Adam(learning_rate=lr)
+    elif model.params['optimizer'].upper() == 'ADAMW':
+        optimizer  = tfa.optimizers.AdamW(learning_rate=lr)
+    elif model.params['optimizer'].upper() == 'SGD':
+        optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=0.9)
     else:
         print("Optimizer {:s} does not exist".format(params['optimizer']))
             
@@ -215,8 +226,6 @@ def train_model(train_data, test_data, model):
         # Save model at last epoch
         if epoch == model.params['epochs']-1:
             save_model(model, model.params, train_data, nbatches)
-
-        else:
             
     return training_loss_hist, test_loss_hist
 
@@ -244,38 +253,34 @@ def save_model(model, params, data, nbatches, is_best=False):
         save_dict['parameters'] = params
         np.save('{:s}{:s}.npy'.format(params['param_dir'], fname), save_dict)
 
-        if params['dropout'] or params['normalize_amplitude']:
-            # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
-            # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
+        # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
+        # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
 
-            if model.params['use_amplitude'] and model.params['normalize_amplitude']:
-                # create new model without normalization on amplitude
-                # use this model to calculate mean amplitude
-                model_save = models.autoencoder.AutoEncoder(params, training=False, bn_moving_mean_amplitude=0.)
-                model_save.encoder.set_weights(model.encoder.get_weights())
-                mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
-
-                # create new model with mean normalization on amplitude
-                model_save = models.autoencoder.AutoEncoder(params, training=False,
-                                                            bn_moving_mean_amplitude=mean_amplitude,
-                                                            bn_moving_mean_color=mean_color)
-
-                model_save.encoder.set_weights(model.encoder.get_weights())
-                mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
-
-            else:
-                model_save = models.autoencoder.AutoEncoder(params, training=False)
-                model_save.encoder.set_weights(model.encoder.get_weights())
-                
-            model_save.decoder.set_weights(model.decoder.get_weights())
-
-            model_save.encoder.save(encoder_file)
-            model_save.decoder.save(decoder_file)
-
+        if model.params['physical_latent']:
+            # create new model without normalization on amplitude
+            # use this model to calculate mean amplitude
+            model_save = models.autoencoder.AutoEncoder(params, training=False)
+            model_save.encoder.set_weights(model.encoder.get_weights())
+            mean_dtime, mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
+            
+            # create new model with mean normalization on amplitude
+            model_save = models.autoencoder.AutoEncoder(params, training=False,
+                                                        bn_moving_means=[mean_dtime,
+                                                                         mean_amplitude,
+                                                                         mean_color])
+            
+            model_save.encoder.set_weights(model.encoder.get_weights())
+            mean_dtime, mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
+            # print('DEBUG ', mean_dtime, mean_amplitude, mean_color)
+            
         else:
-            model.encoder.save(encoder_file)
-            model.decoder.save(decoder_file)
+            model_save = models.autoencoder.AutoEncoder(params, training=False)
+            model_save.encoder.set_weights(model.encoder.get_weights())    
 
+        model_save.decoder.set_weights(model.decoder.get_weights())
+
+        model_save.encoder.save(encoder_file)
+        model_save.decoder.save(decoder_file)
 
 def main():
     
@@ -295,7 +300,7 @@ def main():
 
         params['latent_dim'] = latent_dim
         params['train_stage'] = 1
-        if latent_dim > 2 and params['multistage_training']:
+        if params['multistage_training'] and latent_dim > 0:
             params['train_stage'] = 0
         tf.random.set_seed(params['seed'])
 
@@ -318,7 +323,7 @@ def main():
                                                AEmodel)
 
 
-        if latent_dim > 2 and params['train_stage']==0:
+        if params['train_stage']==0:
             # Second train stage
             params['train_stage'] = 1
             AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)

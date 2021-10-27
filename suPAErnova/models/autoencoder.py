@@ -10,9 +10,11 @@ class AutoEncoder(tf.keras.Model):
     '''Autoencoder with option for fixed amplitude parameter and colorlaw of decoder 
         Modified to take in conditional vatiables (time of observation)'''
     def __init__(self, params, training=True,
-                 bn_moving_mean_amplitude=0., bn_moving_mean_color=0.): 
+                 num_physical_latent_dims=3,
+                 bn_moving_means=[0., 0., 0.]): 
         super(AutoEncoder, self).__init__()
         # network dimensions and layers
+        self.num_physical_latent_dims = num_physical_latent_dims #[delta t, delta m, Av]
         self.params = params
 
         # activation functions
@@ -50,8 +52,7 @@ class AutoEncoder(tf.keras.Model):
         else:
             self.kernel_regularizer = None
 
-        self.bn_moving_mean_amplitude = bn_moving_mean_amplitude
-        self.bn_moving_mean_color     = bn_moving_mean_color
+        self.bn_moving_means = bn_moving_means
 
         # set random seeds
         os.environ['PYTHONHASHSEED']=str(params['seed'])
@@ -74,7 +75,11 @@ class AutoEncoder(tf.keras.Model):
 
         # add either convolutional or fully connected block
         encode_x = encode_inputs_data
-        #encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
+        if self.params['layer_type'].upper() == 'DENSE':
+            # Append time as additional parameter.
+            # If convolutional layers, instead append after convolutions
+            encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
+
         for iunit, nunit in enumerate(self.params['encode_dims'][:-1]):
 #            print(iunit, encode_x.shape)
             # fully connected layer
@@ -125,14 +130,15 @@ class AutoEncoder(tf.keras.Model):
             encode_x = tfkl.Reshape((encode_x_shape[-3], encode_x_shape[-2]*encode_x_shape[-1]))(encode_x)
             
         # add conditional time parameter as new feature
-        encode_x = tfkl.concatenate([encode_x, encode_inputs_cond])
+        if self.params['layer_type'].upper()=='CONVOLUTION':
+            encode_x = tfkl.concatenate([encode_x, encode_inputs_cond])
 
         # dense layers
         encode_x = tfkl.Dense(self.params['encode_dims'][-1],
                               activation=self.activation,
                               kernel_regularizer=self.kernel_regularizer)(encode_x)
 
-        encode_x = tfkl.Dense(self.params['latent_dim'],
+        encode_x = tfkl.Dense(self.params['latent_dim']+self.num_physical_latent_dims, 
                               kernel_regularizer=self.kernel_regularizer)(encode_x)
 
         
@@ -141,40 +147,39 @@ class AutoEncoder(tf.keras.Model):
 
         if self.params['physical_latent']:
             # encode_color   = tf.nn.relu(encode_outputs[..., -1:])
-            encode_color   = encode_outputs[..., -1:]
-            encode_outputs = encode_outputs[..., :-1]    
+            encode_dtime     = encode_outputs[..., 0:1] # delta time
+            encode_amplitude = encode_outputs[..., 1:2] # delta m
+            encode_color     = encode_outputs[..., 2:3] # color Av
+            encode_latent    = encode_outputs[..., 3:]  # intrinsic latent variables
 
-            if self.params['use_amplitude']:
-                # amplitude multiplication of output
-                encode_amplitude = encode_outputs[..., 0:1] # keep last dim shape
-                encode_outputs   = encode_outputs[..., 1:]    
-
-                if self.params['train_stage'] == 0:
-                    # set these parameters to 0 at this stage in training
-                    #encode_outputs = encode_outputs*0.
-                    encode_amplitude = encode_amplitude*0. 
+            if self.params['train_stage'] == 0:
+                # set these parameters to 0 at this stage in training
+                encode_amplitude = encode_amplitude*0.
+                encode_dtime     = encode_dtime*0. 
                     
-                # Make amplitude of nonmasked SN have mean 0
-                if self.params['normalize_amplitude']:
-                    # This roundabout way is required due to the dreaded TensorFlow error:
-                    # TypeError: 'Tensor' object does not support item assignment
-                    
-                    if self.training:
-                        is_kept = tf.reduce_max(encode_inputs_mask[:, :, 0], axis=-1)
-                        batch_mean_amplitude = tf.reduce_sum(encode_amplitude * is_kept, axis=0)/tf.reduce_sum(is_kept)
-                        encode_amplitude = tfkl.subtract([encode_amplitude, batch_mean_amplitude])
-
-                        batch_mean_color = tf.reduce_sum(encode_color * is_kept, axis=0)/tf.reduce_sum(is_kept)
-                        encode_color = tfkl.subtract([encode_color, batch_mean_color])
-
-                    else:
-                        encode_amplitude = tfkl.subtract([encode_amplitude, tf.Variable([self.bn_moving_mean_amplitude])])
-                        encode_color = tfkl.subtract([encode_color, tf.Variable([self.bn_moving_mean_color])])
-
-                encode_outputs = tfkl.concatenate([encode_amplitude, encode_outputs, encode_color])
-
+            # Make dtime, damplitude, and Av of nonmasked SN have mean 0
+            # This roundabout way is required due to the dreaded TensorFlow error:
+            # TypeError: 'Tensor' object does not support item assignment
+                
+            if self.training:
+                is_kept = tf.reduce_max(encode_inputs_mask[:, :, 0], axis=-1)
+                
+                batch_mean_dtime = tf.reduce_sum(encode_dtime * is_kept, axis=0)/tf.reduce_sum(is_kept)
+                encode_dtime = tfkl.subtract([encode_dtime, batch_mean_dtime])
+                
+                batch_mean_amplitude = tf.reduce_sum(encode_amplitude * is_kept, axis=0)/tf.reduce_sum(is_kept)
+                encode_amplitude = tfkl.subtract([encode_amplitude, batch_mean_amplitude])
+                
+                batch_mean_color = tf.reduce_sum(encode_color * is_kept, axis=0)/tf.reduce_sum(is_kept)
+                encode_color = tfkl.subtract([encode_color, batch_mean_color])
+                
             else:
-                encode_outputs = tfkl.concatenate([encode_outputs, encode_color])
+                encode_dtime     = tfkl.subtract([encode_dtime, tf.Variable([self.bn_moving_means[0]])])
+                encode_amplitude = tfkl.subtract([encode_amplitude, tf.Variable([self.bn_moving_means[1]])])
+                encode_color     = tfkl.subtract([encode_color, tf.Variable([self.bn_moving_means[2]])])
+                
+            encode_outputs = tfkl.concatenate([encode_dtime, encode_amplitude, encode_color, encode_latent])
+
             
         return tfk.Model(inputs=[encode_inputs_data, encode_inputs_cond, encode_inputs_mask], outputs=encode_outputs)
 
@@ -182,7 +187,7 @@ class AutoEncoder(tf.keras.Model):
     def build_decoder(self):
         '''Decoder architecture''' 
 
-        decode_inputs_latent = tfkl.Input(shape=(self.params['latent_dim'],), name='latent_params')
+        decode_inputs_latent = tfkl.Input(shape=(self.params['latent_dim']+self.num_physical_latent_dims,), name='latent_params')
         decode_inputs_cond   = tfkl.Input(shape=(self.params['n_timestep'], self.params['cond_dim']), name='conditional_params')
         decode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], 1))
 
@@ -191,16 +196,14 @@ class AutoEncoder(tf.keras.Model):
 
         if self.params['physical_latent']:
             #decode_color       = tf.exp(decode_latent[..., -1:]) # ensure colorlaw latent parameter>=0
-            decode_color       = decode_latent[..., -1:] # ensure colorlaw latent parameter>=0
+            decode_dtime     = decode_latent[..., 0:1]
+            decode_amplitude = decode_latent[..., 1:2]
+            decode_color     = decode_latent[..., 2:3] # ensure colorlaw latent parameter>=0
 
-            istart = 0
-            if self.params['use_amplitude']:
-                decode_amplitude = decode_latent[..., 0:1]
-                istart = 1
-
-            # add in latent paramater after first layer
-            decode_x = tfkl.concatenate([decode_latent[..., istart:-1], decode_inputs_cond])
-            #decode_x = decode_latent[..., istart:-1]
+            decode_latent = decode_latent[..., self.num_physical_latent_dims:]
+            # add in latent parameter after first layer
+            decode_x = tfkl.concatenate([decode_latent,
+                                         decode_inputs_cond + decode_dtime])
         else:
             decode_x = tfkl.concatenate([decode_latent, decode_inputs_cond])
 
@@ -257,39 +260,28 @@ class AutoEncoder(tf.keras.Model):
             decode_outputs = tf.keras.layers.Dense(self.params['data_dim'],
                                                    kernel_regularizer=self.kernel_regularizer)(decode_x)
 
-        if self.params['physical_latent']:
-            # get "color law", akin to multiplying by 10^(latent_var*CL(lambda))
-
-            if self.params['colorlaw_preset']:
-                # use input colorlaw, SALT2 or Fitzpatrick99
-                decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
-                                                        kernel_initializer=self.colorlaw_init,
-                                                        name='color_law',
-                                                        use_bias=False,
-                                                        trainable=False)(decode_color)
+        if self.params['colorlaw_preset']:
+            # use input colorlaw, SALT2 or Fitzpatrick99
+            decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
+                                                    kernel_initializer=self.colorlaw_init,
+                                                    name='color_law',
+                                                    use_bias=False,
+                                                    trainable=False)(decode_color)
                 
-            else:
-                decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
-                                                        kernel_initializer=self.colorlaw_init,
-                                                        name='color_law',
-                                                        use_bias=False,
-                                                        trainable=True,
-                                                        kernel_constraint=tfk.constraints.NonNeg())(decode_color)
-
+        else:
+            decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
+                                                    kernel_initializer=self.colorlaw_init,
+                                                    name='color_law',
+                                                    use_bias=False,
+                                                    trainable=True,
+                                                    kernel_constraint=tfk.constraints.NonNeg())(decode_color)
+        if self.params['physical_latent']:
+            # multiply by amplitude and colorlaw
             # -0.4 to account for magnitudes
-            if self.params['use_amplitude']:
-                # multiply by amplitude and colorlaw
-                decode_outputs = (decode_outputs
-                                  * 10 ** (-0.4 * (decode_colorlaw + decode_amplitude) ))
+            decode_outputs = (decode_outputs
+                              * 10 ** (-0.4 * (decode_colorlaw + decode_amplitude) ))
 
-            else:
-                # multiply by colorlaw
-                decode_outputs = (decode_outputs
-                                  * 10**(-0.4*decode_colorlaw))
-#                 print(decode_colorlaw.shape, decode_colorlaw_deriv.shape)
-#                 decode_outputs = decode_outputs * 10**(-0.4*(decode_colorlaw + decode_colorlaw_deriv))
-
-        return tfk.Model(inputs=[decode_inputs_latent, decode_inputs_cond, decode_inputs_mask], outputs=decode_outputs*decode_inputs_mask)#-(1-decode_inputs_mask))
+        return tfk.Model(inputs=[decode_inputs_latent, decode_inputs_cond, decode_inputs_mask], outputs=decode_outputs*decode_inputs_mask) 
 
 
     def encode(self, x, cond, mask):

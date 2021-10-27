@@ -14,7 +14,10 @@ def load_ae_models(params, verbose=False):
 
     print('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname))
     if verbose: print('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname))
-    AE_model_params = np.load('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname), allow_pickle='TRUE').item()
+
+    AE_model_params = np.load('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname),
+                              allow_pickle='TRUE').item()
+
     if verbose: print(AE_model_params)
 
     encoder = tfk.models.load_model(AE_model_params['encoder'], compile=False)
