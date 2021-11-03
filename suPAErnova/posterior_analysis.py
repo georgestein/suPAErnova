@@ -63,7 +63,19 @@ def find_MAP(model, params, verbose=False):
                 # add delta time as last parameter
                 initial_position = np.c_[model.dtime_ini.numpy(), initial_position]
 
-        if ichain > 0 and ichain <= 10:
+        if ichain > 1 and ichain < 10:
+            initial_position = model.get_latent_prior().sample(model.nsamples).numpy() 
+            if params['train_amplitude']:
+
+                # add amplitude as first parameter
+                initial_position = np.c_[model.get_amplitude_prior().sample(model.nsamples).numpy(),
+                                         initial_position]
+            if params['train_dtime']:
+                # add delta time as last parameter
+                initial_position = np.c_[model.get_dtime_prior().sample(model.nsamples).numpy(),
+                                         initial_position]
+            
+        if ichain >= 10 and ichain < 20:
             #initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
             initial_position = model.get_latent_prior().sample(model.nsamples).numpy() * 0.
             if params['train_amplitude']:
@@ -71,9 +83,9 @@ def find_MAP(model, params, verbose=False):
                 #initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
                 Amax = 0.75
                 Amin = -0.75
-                dA = (Amax-Amin)/(10)
-                A = np.zeros(initial_position.shape[0], dtype=np.float32) + Amin + (ichain-1)*dA
-
+                dA = (Amax-Amin)/(10-1)
+                A = np.zeros(initial_position.shape[0], dtype=np.float32) + Amin + (ichain-10)*dA
+                print('DEBUG A', A)
                 # add amplitude as first parameter
                 initial_position = np.c_[A, initial_position]
 
@@ -81,19 +93,26 @@ def find_MAP(model, params, verbose=False):
                 initial_position = np.c_[model.get_dtime_prior().sample(model.nsamples).numpy(),
                                          initial_position]
 
-        if ichain > 10:
+        if ichain >= 20:
             # vary Av
+            # get mean spectra in u
             initial_position = model.get_latent_prior().sample(model.nsamples).numpy() * 0.
-            
+            # transform to z
+            initial_position = model.flow.bijector.forward(initial_position).numpy()
+
             # replace Av paramater with larger variance
             Avmax = 3
-            Avmin = -0.1
-            dA = (Avmax-Avmin)/(params['nchains']-10)
-            Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + (ichain-10)*dA
-
+            Avmin = -0.5
+            dA = (Avmax-Avmin)/(params['nchains']-20)
+            Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + ichain*dA #(ichain-20)*dA
+            print('DEBUG Av', Av)
             initial_position[:, 0] = Av
-            # add amplitude as first parameter
 
+            # transform back to u
+            initial_position = model.flow.bijector.inverse(initial_position)
+
+            print('DEBUG ip', initial_position)
+            # add amplitude as first parameter
             A = np.zeros(initial_position.shape[0], dtype=np.float32) 
             initial_position = np.c_[A, initial_position]
 
@@ -357,7 +376,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                     data_map_batch['dtime_map']   = log_posterior.dtime
 
                 data_map_batch['logp_z_latent_map'] = log_posterior.flow.log_prob(log_posterior.get_z()[:, log_posterior.istart_map:])
-                data_map_batch['logp_u_latent_map'] = -1./2 * np.sum(log_posterior.MAPu**2, axis=1)
+                data_map_batch['logp_u_latent_map'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
                 data_map_batch['logJ_u_latent_map'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
                 
                 tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(log_posterior.num_evaluations,
@@ -401,7 +420,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                     data_map_batch['dtime_mcmc_err'] = parameters_std[:, ind_dtime]
                     log_posterior.dtime = parameters_mean[:, ind_dtime]
 
-                log_posterior.MAPu  = parameters_mean[:, log_posterior.istart_map:]
+                log_posterior.MAPu = parameters_mean[:, log_posterior.istart_map:]
                 log_posterior.MAPz = z_parameters_mean[:, log_posterior.istart_map:]
 
                 data_map_batch['u_latent_mcmc'] = parameters_mean[:, log_posterior.istart_map:]
@@ -412,8 +431,8 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['spectra_mcmc'] = log_posterior.fwd_pass().numpy()
 
                 print(log_posterior.MAPu)
-                data_map_batch['logp_z_latent_mcmc'] = log_posterior.flow.log_prob(log_posterior.MAPu)
-                data_map_batch['logp_u_latent_mcmc'] = -1./2 * np.sum(log_posterior.MAPu**2, axis=1)
+                data_map_batch['logp_z_latent_mcmc'] = log_posterior.flow.log_prob(log_posterior.MAPz[:, log_posterior.istart_map:])
+                data_map_batch['logp_u_latent_mcmc'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
                 data_map_batch['logJ_u_latent_mcmc'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
 
             if batch_start == 0:
@@ -471,7 +490,18 @@ def main():
     
         train_data = data_loader.load_data(params['train_data_file'], print_params=params['print_params'])#, to_tensor=True)
         test_data  = data_loader.load_data(params['test_data_file'])#, to_tensor=True)
-        
+
+        # Mask certain supernovae         
+        train_data['mask_sn'] = data_loader.get_train_mask(train_data, params)
+        test_data['mask_sn'] = data_loader.get_train_mask(test_data, params)
+
+	# Mask certain spectra
+        train_data['mask_spectra'] = data_loader.get_train_mask_spectra(train_data, params)
+        test_data['mask_spectra'] = data_loader.get_train_mask_spectra(test_data, params)
+
+        train_data['mask'] *= train_data['mask_spectra']
+        test_data['mask']  *= test_data['mask_spectra']
+
         # get latent representations from encoder and flow
         train_data['z_latent'] = PAE.encoder((train_data['spectra'], train_data['times'], train_data['mask'])).numpy()
         test_data['z_latent']  = PAE.encoder((test_data['spectra'], test_data['times'], test_data['mask'])).numpy()
@@ -488,16 +518,18 @@ def main():
 
         # Measure ae reconstruction uncertainty as a function of time
         dm = data_loader.get_train_mask(train_data, params)
-        train_data['sigma_ae_time'], ae_noise_t_bin_edge, train_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(train_data['spectra'][dm], 
-                                                                                                      train_data['spectra_ae'][dm], 
-                                                                                                      train_data['sigma'][dm], 
-                                                                                                      train_data['times'][dm])
-
+        train_data['sigma_ae_time'], ae_noise_t_bin_edge, train_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(train_data['spectra'][dm],
+                                                                                                                                    train_data['spectra_ae'][dm], 
+                                                                                                                                    train_data['sigma'][dm], 
+                                                                                                                                    train_data['times'][dm],
+                                                                                                                                     train_data['mask'][dm])
+            
         dm = data_loader.get_train_mask(test_data, params)
         test_data['sigma_ae_time'], ae_noise_t_bin_edge, test_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(test_data['spectra'][dm], 
                                                                                                      test_data['spectra_ae'][dm],
                                                                                                      test_data['sigma'][dm],
-                                                                                                     test_data['times'][dm])
+                                                                                                                                   test_data['times'][dm],
+                                                                                                                                   test_data['mask'][dm])
 
 
         #tstrs = ['test']

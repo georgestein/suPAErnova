@@ -1,6 +1,6 @@
 import numpy as np
 
-def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, weighted=False, outlier_cut=100, relative=True):
+def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=False, outlier_cut=100, relative=True):
     """Calculate std of true and reconstructed spectra as a function of time
 
     Parameters
@@ -15,10 +15,9 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, weighted=False, out
        observation time
     """
 
-    # DEBUG
-    relative=True
-    dm = spec_true != -1.
-
+    relative = True
+    dm = mask[:, :, 0] == 1.
+    print('DEBUG ', dm.shape, spec_true.shape)
     ntbins = 11
     t_bin_edge = np.linspace(0, 1, ntbins+1)
     t_bin_cent = (t_bin_edge[:-1] + t_bin_edge[1:])/2
@@ -27,7 +26,7 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, weighted=False, out
     s1 = spec_pred[dm].copy()  
     sig = sigma[dm].copy()
 
-    t   = time[dm[:,:,0]][:,0]
+    t   = time[dm][:,0]
     
     s0 = np.reshape(s0, (-1, 288))
     s1 = np.reshape(s1, (-1, 288))

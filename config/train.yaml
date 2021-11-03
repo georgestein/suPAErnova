@@ -13,9 +13,9 @@ autoencoder: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  out_file_tail: '_minz_0pt02_dtimecorrect'
+  out_file_tail: '_3stage_train_decorrelate_all_magnitude_twinscut_huber' #amploss' #_1e-3clip'
   #out_file_tail: 'test'
-  
+
   # Outputs
   model_summary: !!bool True
   savefig: !!bool False
@@ -30,7 +30,11 @@ autoencoder: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [3, 4, 5]
+  #encode_dims: [64, 32, 16]
+  #decode_dims: [16, 32, 64]
+  #encode_dims: [16, 8, 8]
+  #decode_dims: [8, 8, 16]
+  latent_dims: [0, 3] #3, 2, 1, 0, 4]#,2,3,4] #3, 4, 5]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -42,10 +46,10 @@ autoencoder: &DEFAULT
   colorlaw_preset: !!bool True
   use_amplitude: !!bool True
   decorrelate_dust: !!bool True
-  decorrelate_all: !!bool False
+  decorrelate_all: !!bool True
 
   # Loss functions
-  loss_fn: 'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
+  loss_fn: 'HUBER' #'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
   clip_delta: !!float 10.0
   
   iloss_reconstruction: !!bool True
@@ -53,13 +57,13 @@ autoencoder: &DEFAULT
   iloss_amplitude_parameter: !!bool False
   iloss_amplitude_offset: !!bool False
 
-  lambda_covariance: !!float 50000.
+  lambda_covariance: !!float 1000. # 00.
   lambda_colorlaw: !!float 0.0
   lambda_amplitude_parameter: !!float 1000.0
-  lambda_amplitude_offset: !!float 1.
+  lambda_amplitude_offset: !!float 500.
   
   # AE Training
-  epochs: 2500 # 2500
+  epochs: 2500 #2500
   test_every: 100
   seed: 13579
   batch_size: 57 #19 #57
@@ -68,7 +72,8 @@ autoencoder: &DEFAULT
   min_train_redshift: !!float 0.02
   max_train_redshift: !!float 1.0
   max_light_cut: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
-  twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
+  max_light_cut_spectra: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  twins_cut: !!bool True # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
   
   dropout: !!bool False
   batchnorm: !!bool False
@@ -76,12 +81,13 @@ autoencoder: &DEFAULT
   train_noise: !!bool True        # resample data within measurement errors
   train_time_uncertainty: !!bool True        # resample data within measurement errors	
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
-  multistage_training: !!bool True # Trains in 2 stages. The first does not allow the amplitude term to vary, while the second does
+  multistage_training: !!bool True # Trains in 3 stages. The first does not allow the amplitude term to vary, the second does, and the third allows for a delta time parameter
   
   optimizer: 'ADAM' # ADAM, ADAMW, SGD
   activation: 'RELU' # RELU, ELU, GELI, SWISH
-  lr: !!float 0.005 
+  lr: !!float 0.005
   lr_stage_2: !!float 0.005
+  lr_stage_3: !!float 0.001
   dropout_rate: !!float 0.2
   kernel_regularizer_val: !!float 100.0
   noise_scale: !!float 1.0        # in units of observation uncertainty 
@@ -91,7 +97,7 @@ autoencoder: &DEFAULT
 flow:
   <<: *DEFAULT
 
-  nlayers: 4 # number of layers per latent dimension
+  nlayers: 12 
   nunit: 8
 
   # Training

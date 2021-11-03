@@ -43,7 +43,7 @@ def load_data(filename, remove_negatives=True, scale_sigma_observed=True,
     return data
 
 def get_train_mask(data, params):
-    """Mask out samples that are not desired to train on"""
+    """Mask out supernovae that are not desired to train on"""
     dm_redshift = ((data['redshift'] > params['min_train_redshift']) & 
                    (data['redshift'] < params['max_train_redshift']))
 
@@ -57,6 +57,14 @@ def get_train_mask(data, params):
     if params['twins_cut']:
         in_twins, dm_twins = get_twins_mask(data)
         dm = dm & dm_twins
+
+    return dm
+
+def get_train_mask_spectra(data, params):
+    """Mask out spectra that are not desired to train on"""
+
+    dm = ((data['times_orig'] > params['max_light_cut_spectra'][0]) & 
+        (data['times_orig'] < params['max_light_cut_spectra'][1]))
 
     return dm
 

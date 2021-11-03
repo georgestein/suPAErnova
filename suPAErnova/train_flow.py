@@ -47,25 +47,24 @@ def train_flow(data, params, verbose=False):
 
     if params['optimizer'].upper() == 'ADAM':
         optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
-    if params['optimizer'].upper() == 'ADAMW':
+    elif params['optimizer'].upper() == 'ADAMW':
         optimizer  = tfa.optimizers.AdamW(params['lr_flow'])
     else:
         print("Optimizer {:s} does not exist".format(params['optimizer']))
 
-    # Mask training samples outside of (min_train_redshift < z < max_train_redshift) range
-    dm = data_loader.get_train_mask(data, params)
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
     # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it
     istart = 2
 
-    z_latent = tf.convert_to_tensor(data['z_latent'][dm, istart:], dtype=tf.float32)
+    z_latent = tf.convert_to_tensor(data['z_latent'][:, istart:], dtype=tf.float32)
 
     print('Size of training data = ', z_latent.shape)
-    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_nlayers{:02d}{:s}'.format(params['model_dir'],
+    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}{:s}'.format(params['model_dir'],
                                                                                       params['kfold'],
                                                                                       params['latent_dim'],
+                                                                                      '-'.join(str(e) for e in params['encode_dims']),
                                                                                       params['nlayers'],
                                                                                       params['out_file_tail'])
 
@@ -110,11 +109,22 @@ def main():
         train_data = data_loader.load_data(params['train_data_file'], print_params=params['print_params'])#, to_tensor=True)
         test_data  = data_loader.load_data(params['test_data_file'])#, to_tensor=True)
 
-        # get latent representations from encoder
-        train_data['z_latent'] = encoder((train_data['spectra'],train_data['times'], train_data['mask'])).numpy()
-        test_data['z_latent']  = encoder((test_data['spectra'], test_data['times'], test_data['mask'])).numpy()
+        # Mask certain supernovae       
+        train_data['mask_sn'] = data_loader.get_train_mask(train_data, AE_params.params)
+        test_data['mask_sn'] = data_loader.get_train_mask(test_data, AE_params.params)
 
-        # saved on checkpoint, so no need to save again
+        # Mask certain spectra
+        train_data['mask_spectra'] = data_loader.get_train_mask_spectra(train_data, AE_params.params)
+        test_data['mask_spectra'] = data_loader.get_train_mask_spectra(test_data, AE_params.params)
+        
+        # Get latent representations from encoder
+        train_data['z_latent'] = encoder((train_data['spectra'],train_data['times'], train_data['mask']*train_data['mask_spectra'])).numpy()
+        test_data['z_latent']  = encoder((test_data['spectra'], test_data['times'], test_data['mask']*test_data['mask_spectra'])).numpy()
+
+        train_data['z_latent'] = train_data['z_latent'][train_data['mask_sn']]
+        test_data['z_latent'] = test_data['z_latent'][test_data['mask_sn']]
+
+        # Saved on checkpoint, so no need to save again
         NFmodel, flow = train_flow(train_data, params, verbose=True)
 
 if __name__ == '__main__':

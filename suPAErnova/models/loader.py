@@ -35,11 +35,12 @@ def load_ae_models(params, verbose=False):
 
 
 def load_flow(params):
-    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_nlayers{:02d}{:s}'.format(params['model_dir'],
-                                                                                  params['kfold'],
-                                                                                  params['latent_dim'],
-                                                                                  params['nlayers'],
-                                                                                  params['out_file_tail'])
+    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}{:s}'.format(params['model_dir'],
+                                                                                      params['kfold'],
+                                                                                      params['latent_dim'],
+                                                                                      '-'.join(str(e) for e in params['encode_dims']),
+                                                                                      params['nlayers'],
+                                                                                      params['out_file_tail'])
 
     print(params)
     NFmodel, flow = models.flow.normalizing_flow(params)

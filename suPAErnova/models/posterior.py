@@ -238,7 +238,7 @@ class LogPosterior(tfk.Model):
     
     def get_amplitude_prior(self):
         amplitude_mean = 0.0
-        amplitude_std  = 0.2
+        amplitude_std  = 0.1
 
         return tfd.Normal(loc=amplitude_mean, scale=amplitude_std)
 

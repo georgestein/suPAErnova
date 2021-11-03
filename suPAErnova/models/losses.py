@@ -80,13 +80,26 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
 
 
     if model.params['loss_fn'].upper() == 'MAGNITUDE':
-        cond  = mask == 1.
-        loss = tf.reduce_mean(tf.reduce_sum(tf.math.abs(x - x_pred)/tf.math.abs(x) * mask, axis=(-2, -1)))
+        cond  = x_pred >= 0.
+        mag_loss = tf.math.abs(tf.math.log( (x_pred+1e-9) / (x*mask+1e-9))) * mask #1./sigma * mask
+        mag_loss_amp = tf.math.log( (x_pred+1e-9) / (x*mask+1e-9)) * mask #1./sigma * mask
+        nan_error = (x - x_pred)/(sigma + noise_floor) * mask
+        nan_error = 0.5 * tf.keras.backend.square(nan_error)
+        loss = tf.reduce_mean(tf.reduce_sum(
+            tf.where(cond, mag_loss, nan_error),
+            axis=(-2, -1)))
+
+        # Punish overall amplitude offset of spectra from SN
+        loss_amp = tf.reduce_mean(tf.abs(tf.reduce_sum(
+            tf.where(cond, mag_loss_amp, nan_error),
+            axis=(-2, -1))))
+
+        loss += loss_amp
 
     # Punish overall amplitude offset of spectra from SN
     if model.params['iloss_amplitude_offset']:
         loss_offset = tf.reduce_mean(tf.abs(tf.reduce_sum( (x - x_pred) * mask, axis=(-2, -1))))
-
+        #tf.print(loss, loss_offset, loss_offset*model.params['lambda_amplitude_offset'])
         loss += loss_offset * model.params['lambda_amplitude_offset'] 
 
     if model.params['use_amplitude'] and model.params['iloss_amplitude_parameter']:
@@ -151,13 +164,12 @@ def compute_loss_ae(model, x, cond, sigma, mask, dl):
         if model.params['decorrelate_dust']:
             istart += 1
 
-
         if not model.params['decorrelate_all']:
             cov_mask[istart:iend, istart:iend] = 0. # remove correlation from central region
 
         cov_mask = tf.convert_to_tensor(cov_mask)
 
-        #tf.print(cov_z)
+        #tf.print(cov_z)#, cov_mask)
         loss_cov = tf.reduce_sum(tf.square(tf.math.multiply(cov_z, cov_mask))) / tf.reduce_sum(cov_mask)
 
         #tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
