@@ -15,8 +15,10 @@ def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
     # And this is the paramater we want to fit to get "cosmological distances"
-    u_latent_dim = params['latent_dim'] + 1 # plus one to include color term
-        
+    u_latent_dim = params['latent_dim'] 
+    if params['use_extrinsic_params']:
+        u_latent_dim += 1 # plus one to include color term
+
     indices = np.roll(np.arange(u_latent_dim), 1)
     permutations = [indices for ii in range(params['nlayers'])]
 

@@ -17,9 +17,13 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
 
     relative = True
     dm = mask[:, :, 0] == 1.
-    print('DEBUG ', dm.shape, spec_true.shape)
-    ntbins = 11
-    t_bin_edge = np.linspace(0, 1, ntbins+1)
+    dtbin = 0.1
+    tmax = 1.0
+    tmin = 0.0
+
+    ntbins = int((tmax-tmin)//dtbin)+2
+
+    t_bin_edge = np.linspace(tmin-dtbin/2, tmax+dtbin/2, ntbins+1)
     t_bin_cent = (t_bin_edge[:-1] + t_bin_edge[1:])/2
 
     s0 = spec_true[dm].copy()
@@ -32,10 +36,14 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
     s1 = np.reshape(s1, (-1, 288))
     sig = np.reshape(sig, (-1, 288))
 
-    mse = (s0 - s1)
-    if relative:
-        mse = np.abs((s0 - s1))/s1
+    s0 = np.clip(s0, 1e-3, np.inf)
+    s1 = np.clip(s1, 1e-3, np.inf)
 
+    mse = np.abs((s0 - s1))
+    if relative:
+        mse = np.abs((s0 - s1))/np.abs(s1)
+
+    print(mse.min(), mse.max())
     #mse = np.log(np.abs(s1/s0))
     #mse = np.abs(s1/(s0+1e-9)) - 1
 
@@ -66,14 +74,13 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
             mask[indlt] = 0. 
             
             # take std of non masked
-            sigma_t[:, ibin] = np.sum(  (msei - np.sum(msei*mask, axis=0)/np.sum(mask, axis=0))**2*mask, axis=0)/np.sum(mask, axis=0)
+            #sigma_t[:, ibin] = np.sum(  (msei - np.sum(msei*mask, axis=0)/np.sum(mask, axis=0))**2*mask, axis=0)/np.sum(mask, axis=0)
+            sigma_t[:, ibin] = np.sqrt(np.sum(  (msei)**2*mask, axis=0)/np.sum(mask, axis=0))
 
         if relative:
             # take mean of non masked
-            sigma_t[:, ibin] = np.sum(msei * mask, axis=0)/np.sum(mask, axis=0)
-
-    if not relative:
-        sigma_t = np.sqrt(sigma_t)
+            #sigma_t[:, ibin] = np.sum(msei * mask, axis=0)/np.sum(mask, axis=0)
+            sigma_t[:, ibin] = np.sqrt(np.sum(msei**2 * mask, axis=0)/np.sum(mask, axis=0))
     
     return sigma_t.astype(np.float32), t_bin_edge.astype(np.float32), t_bin_cent.astype(np.float32)
 

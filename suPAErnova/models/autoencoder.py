@@ -156,9 +156,15 @@ class AutoEncoder(tf.keras.Model):
             if self.params['train_stage'] == 0:
                 # set these parameters to 0 at this stage in training
                 encode_amplitude = encode_amplitude*0.
-                encode_dtime     = encode_dtime*0.
+                encode_latent  = encode_latent*0.
+                encode_dtime   = encode_dtime*0.
 
             if self.params['train_stage'] == 1:
+                # set these parameters to 0 at this stage in training
+                encode_amplitude = encode_amplitude*0.
+                encode_dtime     = encode_dtime*0.
+
+            if self.params['train_stage'] == 2:
                 # set these parameters to 0 at this stage in training
                 encode_dtime     = encode_dtime*0. 
                     
@@ -264,6 +270,7 @@ class AutoEncoder(tf.keras.Model):
         else:
             decode_outputs = tf.keras.layers.Dense(self.params['data_dim'],
                                                    kernel_regularizer=self.kernel_regularizer)(decode_x)
+
         if self.params['colorlaw_preset']:
             # use input colorlaw, SALT2 or Fitzpatrick99
             decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
@@ -285,6 +292,9 @@ class AutoEncoder(tf.keras.Model):
             decode_outputs = ( decode_outputs
                               * 10 ** (-0.4 * (decode_colorlaw + decode_amplitude) ))
 
+        if not self.training:
+            decode_outputs = tf.nn.relu(decode_outputs)
+            
         return tfk.Model(inputs=[decode_inputs_latent, decode_inputs_cond, decode_inputs_mask], outputs=decode_outputs*decode_inputs_mask) 
 
 

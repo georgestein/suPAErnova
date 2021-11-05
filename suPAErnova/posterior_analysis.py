@@ -81,8 +81,8 @@ def find_MAP(model, params, verbose=False):
             if params['train_amplitude']:
                 # replace amplitude paramater with larger variance
                 #initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
-                Amax = 0.75
-                Amin = -0.75
+                Amax = 1.5
+                Amin = -1.5
                 dA = (Amax-Amin)/(10-1)
                 A = np.zeros(initial_position.shape[0], dtype=np.float32) + Amin + (ichain-10)*dA
                 print('DEBUG A', A)
@@ -101,10 +101,10 @@ def find_MAP(model, params, verbose=False):
             initial_position = model.flow.bijector.forward(initial_position).numpy()
 
             # replace Av paramater with larger variance
-            Avmax = 3
+            Avmax = 0.5
             Avmin = -0.5
             dA = (Avmax-Avmin)/(params['nchains']-20)
-            Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + ichain*dA #(ichain-20)*dA
+            Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + (ichain-20)*dA
             print('DEBUG Av', Av)
             initial_position[:, 0] = Av
 
@@ -215,10 +215,6 @@ def run_HMC(model, params, verbose=False):
 
     num_warmup_steps   = int(params['num_burnin_steps'] * 0.8)
 
-    #for ichain in range(params['nchains']):
-	# Run optimization from different starting points by stacking along chain dimension [0]                                                                  
-     #   if ichain==0:
-            # Starts at encoder value if find_MAP==False, else starts from MAP value
     initial_position = tf.convert_to_tensor(model.MAPu).numpy()
     if params['train_amplitude'] or params['use_amplitude']:
         # add amplitude as first parameter
@@ -413,7 +409,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
 
                 log_posterior.amplitude = parameters_mean[:, ind_amplitude]
                 data_map_batch['amplitude_mcmc'] = z_parameters_mean[:,ind_amplitude]
-                data_map_batch['amplitude_mcmc_err'] = z_parameters_std[:,ind_amplitude]
+                data_map_batch['amplitude_mcmc_err'] = z_parameters_std[:, ind_amplitude]
 
                 if params['train_dtime']:
                     data_map_batch['dtime_mcmc'] = parameters_mean[:, ind_dtime]
@@ -488,8 +484,12 @@ def main():
         # Get PAE model
         PAE = model_loader.PAE(params)
     
-        train_data = data_loader.load_data(params['train_data_file'], print_params=params['print_params'])#, to_tensor=True)
-        test_data  = data_loader.load_data(params['test_data_file'])#, to_tensor=True)
+        train_data = data_loader.load_data(params['train_data_file'],
+                                           print_params=params['print_params'],
+                                           set_data_min_val=params['set_data_min_val'])
+        test_data  = data_loader.load_data(params['test_data_file'],
+                                           set_data_min_val=params['set_data_min_val'])
+        
 
         # Mask certain supernovae         
         train_data['mask_sn'] = data_loader.get_train_mask(train_data, params)

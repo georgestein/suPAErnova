@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
-def load_data(filename, remove_negatives=True, scale_sigma_observed=True,
+def load_data(filename, remove_negatives=True, scale_sigma_observed=True, set_data_min_val=0.,
               print_params=False, npz=False, to_tensor=False):
     """load data from .npz files into dictionary and return"""
     if not npz:
@@ -30,10 +30,10 @@ def load_data(filename, remove_negatives=True, scale_sigma_observed=True,
     if print_params:
         print(data.keys())
 
-    if remove_negatives:
-        # remove negative flux values in observed spectrum
-        dm = data['mask'][..., 0] == 1
-        data['spectra'][dm] = np.clip(data['spectra'][dm], 0, np.inf)
+    #if remove_negatives:
+    # remove negative flux values in observed spectrum
+    dm = data['mask'][..., 0] == 1
+    data['spectra'][dm] = np.clip(data['spectra'][dm], set_data_min_val, np.inf)
 
     if scale_sigma_observed:
         # Scaling observed uncertainty to account for fitting degrees of freedom,

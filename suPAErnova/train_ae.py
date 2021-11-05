@@ -96,7 +96,6 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
                                                                             train_data['times'][inds_batch] + dtime[inds_batch],
                                                                             train_data['sigma'][inds_batch],
                                                                             train_data['mask'][inds_batch] * mask_vary[inds_batch],
-                                                                            train_data['luminosity_distance'][inds_batch],
                                                                             optimizer)
 
         training_loss += training_loss_b.numpy()
@@ -110,7 +109,7 @@ def test_step(model, data):
     mask_vary[~data['mask_sn']] = 0.
     mask_vary[~data['mask_spectra']] = 0.
 
-    test_loss, test_loss_terms = losses.compute_loss_ae(model, data['spectra'], data['times'], data['sigma'], data['mask']*mask_vary, data['luminosity_distance'])
+    test_loss, test_loss_terms = losses.compute_loss_ae(model, data['spectra'], data['times'], data['sigma'], data['mask']*mask_vary)
 
     return test_loss, test_loss_terms
 
@@ -165,6 +164,8 @@ def train_model(train_data, test_data, model):
         lr = model.params['lr_stage_2']
     if model.params['train_stage'] == 2:
         lr = model.params['lr_stage_3']
+    if model.params['train_stage'] == 3:
+        lr = model.params['lr_stage_4']
         
     if model.params['optimizer'].upper() == 'ADAM':
         optimizer  = tf.keras.optimizers.Adam(learning_rate=lr)
@@ -297,14 +298,17 @@ def main():
     # Set model Architecture and training params and train
     parser = argparse.ArgumentParser()
     parser.add_argument("--yaml_config", default='./config/train.yaml', type=str)
-    parser.add_argument("--config", default='autoencoder', type=str)
+    parser.add_argument("--config", default='pae', type=str)
     
     args = parser.parse_args()
     
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
-    
-    train_data = data_loader.load_data(params['train_data_file'])#, to_tensor=True) 
-    test_data  = data_loader.load_data(params['test_data_file'])#, to_tensor=True) 
+    epochs_initial = params['epochs']
+
+    train_data = data_loader.load_data(params['train_data_file'],
+                                       set_data_min_val=params['set_data_min_val'])
+    test_data  = data_loader.load_data(params['test_data_file'],
+                                       set_data_min_val=params['set_data_min_val'])
 
     for il, latent_dim in enumerate(params['latent_dims']):
 
@@ -332,13 +336,14 @@ def main():
                                                test_data,
                                                AEmodel)
 
-        while params['train_stage'] < 2:
-            print('Running training stage ', params['train_stage'])
+        while params['train_stage'] < 3:
             
-            # Second train stage
             params['train_stage'] += 1
+            print('Running training stage ', params['train_stage'])
+
             AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)
 
+            AEmodel_second.params['epochs'] = int(epochs_initial * (params['train_stage']+1))
             # Load best checkpoint from step 0 training
             encoder, decoder, AE_params = model_loader.load_ae_models(params)
             #for il, layer in enumerate(decoder.layers):
@@ -349,12 +354,22 @@ def main():
                 
             final_dense_layer = len(params['encode_dims']) + 3
 
-            iend = 3 - params['train_stage']
             final_layer_weights = encoder.layers[final_dense_layer].get_weights()[0]
             final_layer_weights_init =  AEmodel_second.encoder.layers[final_dense_layer].get_weights()[0]
 
+            if params['train_stage'] == 1: # add in z_1, ..., z_n
+                istart = 3
+                final_layer_weights[:, istart:] = final_layer_weights_init[:, istart:]/100
+
+            if params['train_stage'] == 2: # add in delta mag
+                final_layer_weights[:, 1] = final_layer_weights_init[:, 1]/100
+
+            if params['train_stage'] == 3: # add in delta t
+                final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/100
+
             #final_layer_weights[:, :iend] *= 0.
-            final_layer_weights[:, :iend] = final_layer_weights_init[:, :iend]/100
+            #iend = 3 - params['train_stage']
+            #final_layer_weights[:, :iend] = final_layer_weights_init[:, :iend]/100
 
 
             encoder.layers[final_dense_layer].set_weights([final_layer_weights])

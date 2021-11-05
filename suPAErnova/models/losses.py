@@ -16,9 +16,9 @@ def get_apply_grad_fn():
      see https://github.com/tensorflow/tensorflow/issues/27120#issuecomment-540071844
     """
     @tf.function
-    def compute_apply_gradients(model, x, cond, sigma, mask, dl, optimizer):
+    def compute_apply_gradients(model, x, cond, sigma, mask, optimizer):
         with tf.GradientTape() as tape:
-            loss, loss_terms = compute_loss_ae(model, x, cond, sigma, mask, dl)
+            loss, loss_terms = compute_loss_ae(model, x, cond, sigma, mask)
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
@@ -26,8 +26,8 @@ def get_apply_grad_fn():
 
     return compute_apply_gradients
 
-@tf.function
-def compute_loss_ae(model, x, cond, sigma, mask, dl):
+@tf.function #(experimental_relax_shapes=True)
+def compute_loss_ae(model, x, cond, sigma, mask):
 
     # get latent paramaters
     z      = model.encode(x, cond, mask)

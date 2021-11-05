@@ -56,8 +56,11 @@ def train_flow(data, params, verbose=False):
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
     # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it
-    istart = 2
-
+    if params['use_extrinsic_params']:
+        istart = 2
+    else:
+        istart = 3
+        
     z_latent = tf.convert_to_tensor(data['z_latent'][:, istart:], dtype=tf.float32)
 
     print('Size of training data = ', z_latent.shape)
@@ -93,7 +96,7 @@ def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--yaml_config", default='./config/train.yaml', type=str)
-    parser.add_argument("--config", default='flow', type=str)
+    parser.add_argument("--config", default='pae', type=str)
     parser.add_argument("--print_params", default=True, action='store_true')
     
     args = parser.parse_args()
@@ -106,8 +109,11 @@ def main():
 
         encoder, decoder, AE_params = model_loader.load_ae_models(params)
 
-        train_data = data_loader.load_data(params['train_data_file'], print_params=params['print_params'])#, to_tensor=True)
-        test_data  = data_loader.load_data(params['test_data_file'])#, to_tensor=True)
+        train_data = data_loader.load_data(params['train_data_file'],
+                                           print_params=params['print_params'],
+                                           set_data_min_val=params['set_data_min_val'])
+        test_data  = data_loader.load_data(params['test_data_file'],
+                                           set_data_min_val=params['set_data_min_val'])
 
         # Mask certain supernovae       
         train_data['mask_sn'] = data_loader.get_train_mask(train_data, AE_params.params)
