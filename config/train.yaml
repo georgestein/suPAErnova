@@ -31,10 +31,6 @@ pae: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  #encode_dims: [64, 32, 16]
-  #decode_dims: [16, 32, 64]
-  #encode_dims: [16, 8, 8]
-  #decode_dims: [8, 8, 16]
   latent_dims: [3] 
 
   #layer_type: 'convolution'
@@ -68,7 +64,7 @@ pae: &DEFAULT
   epochs: 10 #500
   epochs_latent: 10 #1000
   epochs_final: 10 #2500 
-  test_every: 5 # 100 
+  test_every: 5 #100 
   seed: 13579
   batch_size: 57 
   overfit: !!bool True # Save model at last epoch
