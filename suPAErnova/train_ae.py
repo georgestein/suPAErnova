@@ -271,7 +271,6 @@ def save_model(model, params, data, nbatches, is_best=False):
 
         # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
         # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
-
         if model.params['physical_latent']:
             # create new model without normalization on amplitude
             # use this model to calculate mean amplitude
@@ -287,7 +286,6 @@ def save_model(model, params, data, nbatches, is_best=False):
             
             model_save.encoder.set_weights(model.encoder.get_weights())
             mean_dtime, mean_amplitude, mean_color = calculate_mean_parameters_batches(model_save, data, nbatches)
-            # print('DEBUG ', mean_dtime, mean_amplitude, mean_color)
             
         else:
             model_save = models.autoencoder.AutoEncoder(params, training=False)
@@ -362,15 +360,10 @@ def main():
                 AEmodel_second.params['epochs'] = params['epochs_latent']
             if params['train_stage'] >= params['num_training_stages'] - 2: # add in delta mag                     
                 AEmodel_second.params['epochs'] = params['epochs_final']
-            #AEmodel_second.params['epochs'] = int(epochs_initial * (params['train_stage']+1))
 
             # Load best checkpoint from step 0 training
             encoder, decoder, AE_params = model_loader.load_ae_models(params)
-            #for il, layer in enumerate(decoder.layers):
-            #    print(il, layer, layer.get_weights())
-            #    print("weights:", len(layer.weights))
-            #    print("trainable_weights:", len(layer.trainable_weights))
-            #    print("non_trainable_weights:", len(layer.non_trainable_weights))
+
                 
             final_dense_layer = len(params['encode_dims']) + 3
 
@@ -388,16 +381,8 @@ def main():
                     
             if params['train_stage'] == params['num_training_stages'] - 1: # add in delta t
                 final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/1000
-            #final_layer_weights[:, :iend] *= 0.
-            #iend = 3 - params['train_stage']
-            #final_layer_weights[:, :iend] = final_layer_weights_init[:, :iend]/100
 
             encoder.layers[final_dense_layer].set_weights([final_layer_weights])
-
-            #print('encoder before ', params['train_stage'], encoder.layers[final_dense_layer].get_weights()[0])
-            #print('encoder reinit before ', params['train_stage'], final_layer_weights)
-
-            #print('decoder before ', params['train_stage'], decoder.layers[8].get_weights()[0])
 
             AEmodel_second.encoder.set_weights(encoder.get_weights())
             AEmodel_second.decoder.set_weights(decoder.get_weights())
@@ -406,10 +391,6 @@ def main():
                                                    test_data,
                                                    AEmodel_second)
             params['train_stage'] += 1
-            #print('encoder after ', params['train_stage'], AEmodel_second.encoder.layers[final_dense_layer].get_weights()[0])
-            #print('decoder after ', params['train_stage'], AEmodel_second.decoder.layers[8].get_weights()[0])
-        # Save
-        # save_model(AEmodel, params)
 
 if __name__ == '__main__':
     

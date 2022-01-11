@@ -224,19 +224,6 @@ def run_HMC(model, params, verbose=False):
     if params['train_dtime']:
         initial_position = np.c_[tf.convert_to_tensor(model.dtime).numpy()*params['dtime_norm'], initial_position]
 
-    '''
-    else:
-        initial_position_ichain = model.get_latent_prior().sample(model.nsamples).numpy()
-            if params['train_amplitude']:
-                initial_position_ichain = np.c_[initial_position_ichain, model.get_amplitude_prior().sample(model.nsamples).numpy()]
-            if params['train_dtime']:
-                initial_position_ichain = np.c_[initial_position_ichain, model.get_dtime_prior().sample(model.nsamples).numpy()]
-
-            initial_position = tf.concat([initial_position, initial_position_ichain], axis=0)
-                
-            print(initial_position.shape)
-    '''    
-#    step_sizes = tf.fill([initial_position.shape[0], initial_position.shape[1]], params['step_size'])
     step_sizes = tf.zeros([initial_position.shape[0], initial_position.shape[1]]) + model.z_latent_std
     print('Initial step sizes', step_sizes)
 
@@ -332,21 +319,13 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
             
             # Construct new data for batch
             data = {}
-            data['spectra']   = data_use['spectra'][batch_start:batch_end]#*10**(-0.4*0.25)
+            data['spectra']   = data_use['spectra'][batch_start:batch_end]
             data['sigma']     = data_use['sigma'][batch_start:batch_end]
             data['times']     = data_use['times'][batch_start:batch_end]
-            data['redshift']  = data_use['redshift'][batch_start:batch_end] #* 0. + redshift
+            data['redshift']  = data_use['redshift'][batch_start:batch_end]
             data['mask']      = data_use['mask'][batch_start:batch_end]
             data['wavelengths'] = data_use['wavelengths']
 
-            #if params['run_HMC']:
-                # stack data multiple times. Each becomes a seperate chain in HMC
-
-
-            # convert from flux to luminosity
-            # data['spectra']         = L_to_F(data['spectra'], data['redshifts'][..., None, None])
-
-            
             # Get model
             log_posterior = models.posterior.LogPosterior(PAE, params, data,
                                                           test_data['sigma_ae_time_tbin_cent'],
@@ -370,7 +349,6 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['num_evaluations'] = log_posterior.num_evaluations
                 data_map_batch['negative_log_likelihood'] = log_posterior.negative_log_likelihood
 
-                #            data_map_batch['covariance'] = log_posterior.inv_hessian
                 zi = log_posterior.get_z()
                 
                 data_map_batch['spectra_map'] = log_posterior.fwd_pass().numpy()
@@ -513,7 +491,7 @@ def main():
         train_data['mask'] *= train_data['mask_spectra']
         test_data['mask']  *= test_data['mask_spectra']
 
-        # get latent representations from encoder and flow
+        # Get latent representations from encoder and flow
         train_data['z_latent'] = PAE.encoder((train_data['spectra'], train_data['times'], train_data['mask'])).numpy()
         test_data['z_latent']  = PAE.encoder((test_data['spectra'], test_data['times'], test_data['mask'])).numpy()
 
@@ -523,11 +501,11 @@ def main():
         train_data['u_latent'] = PAE.flow.bijector.inverse(train_data['z_latent'][:, istart:]).numpy()
         test_data['u_latent']  = PAE.flow.bijector.inverse(test_data['z_latent'][:, istart:]).numpy()
     
-        # get reconstructions
+        # Get reconstructions
         train_data['spectra_ae'] = PAE.decoder((train_data['z_latent'], train_data['times'], train_data['mask'])).numpy()
         test_data['spectra_ae']  = PAE.decoder((test_data['z_latent'], test_data['times'], test_data['mask'])).numpy()
 
-        # Measure ae reconstruction uncertainty as a function of time
+        # Measure AE reconstruction uncertainty as a function of time
         dm = data_loader.get_train_mask(train_data, params)
         train_data['sigma_ae_time'], ae_noise_t_bin_edge, train_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(train_data['spectra'][dm],
                                                                                                                                     train_data['spectra_ae'][dm], 
@@ -543,8 +521,6 @@ def main():
                                                                                                                                    test_data['mask'][dm])
 
 
-        #tstrs = ['test']
-        #tstrs = ['train']
         tstrs = ['train', 'test']
         train(PAE, params, train_data, test_data, tstrs=tstrs)
 
