@@ -114,7 +114,7 @@ class LogPosterior(tfk.Model):
             inds_start_uparam += 1
 
         if self.params['train_dtime']:
-            self.dtime = input_params[:, 0]
+            self.dtime = input_params[:, 0]/self.params['dtime_norm']
             inds_start_uparam += 1
 
         self.MAPu = input_params[:, inds_start_uparam:]

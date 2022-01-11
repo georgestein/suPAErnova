@@ -42,7 +42,6 @@ class AutoEncoder(tf.keras.Model):
             self.colorlaw_deriv = CL_deriv
             self.colorlaw_deriv_init = tf.constant_initializer(CL_deriv)
 
-
         else:
             print('colorlaw file {:s} does not exist'.format(params['colorlaw_file']))
             self.colorlaw_preset = False
@@ -155,16 +154,24 @@ class AutoEncoder(tf.keras.Model):
 
             if self.params['train_stage'] == 0:
                 # set these parameters to 0 at this stage in training
-                encode_amplitude = encode_amplitude*0.
-                encode_latent  = encode_latent*0.
-                encode_dtime   = encode_dtime*0.
-
-            if self.params['train_stage'] == 1:
-                # set these parameters to 0 at this stage in training
+                encode_latent    = encode_latent*0.
                 encode_amplitude = encode_amplitude*0.
                 encode_dtime     = encode_dtime*0.
 
-            if self.params['train_stage'] == 2:
+            if (self.params['train_stage'] > 0) and (self.params['train_stage'] <= self.params['latent_dim']):
+                # set these parameters to 0 at this stage in training
+                # construct mask
+                latent_train_mask = np.ones(self.params['latent_dim'], dtype=np.float32)
+                latent_train_mask[self.params['train_stage']:] = 0.
+                latent_train_mask = tf.convert_to_tensor(latent_train_mask)
+
+                # mask
+                encode_latent = encode_latent * latent_train_mask
+
+                encode_amplitude = encode_amplitude*0.
+                encode_dtime     = encode_dtime*0.
+
+            if self.params['train_stage'] == self.params['latent_dim']+1:
                 # set these parameters to 0 at this stage in training
                 encode_dtime     = encode_dtime*0. 
                     

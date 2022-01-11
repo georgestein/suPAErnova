@@ -12,4 +12,6 @@
 conda activate tfp
 srun python suPAErnova/train_ae.py
 srun python suPAErnova/train_flow.py 
+srun python suPAErnova/posterior_analysis.py
+
 #srun python posterior_analysis.py --yaml_config ./config/posterior_analysis_2.yaml

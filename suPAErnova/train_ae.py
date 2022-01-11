@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# !/usr/bin/env python
 # coding: utf-8
 """
 This code constructs and trains the Autoencoder model,
@@ -31,7 +31,7 @@ import sys
 
 def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data):
     """Run one training step"""
-    training_loss, training_loss_terms = 0, [0, 0]
+    training_loss, training_loss_terms = 0., [0., 0., 0.]
 
     # shuffle indices each epoch for batches
     # batch feeding can be improved, but the various types of specialized masks/dropout
@@ -99,8 +99,11 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
                                                                             optimizer)
 
         training_loss += training_loss_b.numpy()
-        training_loss_terms += training_loss_terms_b
+        for ii in range(len(training_loss_terms_b)):
+            training_loss_terms[ii] += training_loss_terms_b[ii].numpy()
 
+    training_loss_terms = [training_loss_terms[ii]/nbatches for ii in range(len(training_loss_terms_b))]
+    
     return training_loss, training_loss_terms
 
 def test_step(model, data):  
@@ -160,12 +163,8 @@ def train_model(train_data, test_data, model):
     compute_apply_gradients_ae = losses.get_apply_grad_fn()
 
     lr = model.params['lr']
-    if model.params['train_stage'] == 1:
-        lr = model.params['lr_stage_2']
-    if model.params['train_stage'] == 2:
-        lr = model.params['lr_stage_3']
-    if model.params['train_stage'] == 3:
-        lr = model.params['lr_stage_4']
+    if model.params['train_stage'] == model.params['latent_dim']+2:
+        lr = model.params['lr_deltat']
         
     if model.params['optimizer'].upper() == 'ADAM':
         optimizer  = tf.keras.optimizers.Adam(learning_rate=lr)
@@ -188,7 +187,7 @@ def train_model(train_data, test_data, model):
     train_data['mask_spectra'] = data_loader.get_train_mask_spectra(train_data, model.params)
     test_data['mask_spectra'] = data_loader.get_train_mask_spectra(test_data, model.params)
 
-    ncolumn_loss = 3
+    ncolumn_loss = 4
     training_loss_hist = np.zeros((model.params['epochs'], ncolumn_loss))
     test_loss_hist     = np.zeros((model.params['epochs']//test_every, ncolumn_loss))
 
@@ -203,8 +202,9 @@ def train_model(train_data, test_data, model):
         
         # get average loss over batches
         training_loss_hist[epoch, 0] = epoch 
-        training_loss_hist[epoch, 1] = training_loss/nbatches
-        training_loss_hist[epoch, 2] = training_loss_terms[0]/nbatches
+        training_loss_hist[epoch, 1] = training_loss_terms[0]
+        training_loss_hist[epoch, 2] = training_loss_terms[1]
+        training_loss_hist[epoch, 3] = training_loss_terms[2]
 
         # test on test spectra
         end_time = time.time()
@@ -215,13 +215,18 @@ def train_model(train_data, test_data, model):
             # Calculate test loss
             test_loss, test_loss_terms = test_step(model, test_data)
             test_loss_hist[test_iteration, 0] = epoch 
-            test_loss_hist[test_iteration, 1] = test_loss.numpy()
-            test_loss_hist[test_iteration, 2] = test_loss_terms[0].numpy()
+            test_loss_hist[test_iteration, 1] = test_loss_terms[0].numpy()
+            test_loss_hist[test_iteration, 2] = test_loss_terms[1].numpy()
+            test_loss_hist[test_iteration, 3] = test_loss_terms[2].numpy()
 
-            print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E}\ntest loss:  {:.2E}'.format(epoch,
-                                                                                              end_time-start_time,
-                                                                                              training_loss/nbatches,
-                                                                                              test_loss.numpy()))
+            print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E} {:.2E} {:.2E}\ntest loss: {:.2E} {:.2E} {:.2E}'.format(epoch,
+                                                                                             end_time-start_time,
+                                                                                             training_loss_terms[0],
+                                                                                             training_loss_terms[1],
+                                                                                             training_loss_terms[2],
+                                                                                             test_loss_terms[0],
+                                                                                             test_loss_terms[1],
+                                                                                             test_loss_terms[2]))
 
             previous_test_decrease = test_iteration - test_iteration_best # number of test iterations since last loss decrease
 
@@ -313,14 +318,20 @@ def main():
     for il, latent_dim in enumerate(params['latent_dims']):
 
         params['latent_dim'] = latent_dim
-        params['train_stage'] = 1
-        if params['multistage_training'] and latent_dim > 0:
-            params['train_stage'] = 0
+        params['num_training_stages'] = latent_dim + 3
+        params['train_stage'] = 0
+        
+        if latent_dim == 0:
+            # Model parameters are (\Delta t, \Delta m, \Delta A_v)
+            # train \Delta m and \Delta A_v first. Then \Delta t
+            params['train_stage'] = 1
+            params['num_training_stages'] = 2
+            
         tf.random.set_seed(params['seed'])
 
         # Create model
         AEmodel = models.autoencoder.AutoEncoder(params, training=True)
-        
+
         # Model Summary
         if params['model_summary'] and (il == 0):
             print("Encoder Summary")
@@ -336,14 +347,23 @@ def main():
                                                test_data,
                                                AEmodel)
 
-        while params['train_stage'] < 3:
+        params['train_stage'] += 1
+        if not params['train_latent_individual']:
+            params['train_stage'] += params['latent_dim'] - 1
+
+        while params['train_stage'] < params['num_training_stages']:
             
-            params['train_stage'] += 1
             print('Running training stage ', params['train_stage'])
 
-            AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)
+            epochs_initial = params['epochs']
 
-            AEmodel_second.params['epochs'] = int(epochs_initial * (params['train_stage']+1))
+            AEmodel_second =  models.autoencoder.AutoEncoder(params, training=True)
+            if params['train_stage'] <  params['num_training_stages'] - 2: 
+                AEmodel_second.params['epochs'] = params['epochs_latent']
+            if params['train_stage'] >= params['num_training_stages'] - 2: # add in delta mag                     
+                AEmodel_second.params['epochs'] = params['epochs_final']
+            #AEmodel_second.params['epochs'] = int(epochs_initial * (params['train_stage']+1))
+
             # Load best checkpoint from step 0 training
             encoder, decoder, AE_params = model_loader.load_ae_models(params)
             #for il, layer in enumerate(decoder.layers):
@@ -357,20 +377,20 @@ def main():
             final_layer_weights = encoder.layers[final_dense_layer].get_weights()[0]
             final_layer_weights_init =  AEmodel_second.encoder.layers[final_dense_layer].get_weights()[0]
 
-            if params['train_stage'] == 1: # add in z_1, ..., z_n
-                istart = 3
-                final_layer_weights[:, istart:] = final_layer_weights_init[:, istart:]/100
+            if params['train_stage'] <= params['latent_dim']: # add in z_1, ..., z_n
+                idim = 2 + params['train_stage']
+                final_layer_weights[:, idim] = final_layer_weights_init[:, idim]/100
 
-            if params['train_stage'] == 2: # add in delta mag
+            if params['train_stage'] == params['num_training_stages'] - 2: # add in delta mag
                 final_layer_weights[:, 1] = final_layer_weights_init[:, 1]/100
-
-            if params['train_stage'] == 3: # add in delta t
-                final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/100
-
+                if not params['train_latent_individual']:
+                    final_layer_weights[:, 3:] = final_layer_weights_init[:, 3:]/100
+                    
+            if params['train_stage'] == params['num_training_stages'] - 1: # add in delta t
+                final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/1000
             #final_layer_weights[:, :iend] *= 0.
             #iend = 3 - params['train_stage']
             #final_layer_weights[:, :iend] = final_layer_weights_init[:, :iend]/100
-
 
             encoder.layers[final_dense_layer].set_weights([final_layer_weights])
 
@@ -385,7 +405,7 @@ def main():
             training_loss, test_loss = train_model(train_data, 
                                                    test_data,
                                                    AEmodel_second)
-
+            params['train_stage'] += 1
             #print('encoder after ', params['train_stage'], AEmodel_second.encoder.layers[final_dense_layer].get_weights()[0])
             #print('decoder after ', params['train_stage'], AEmodel_second.decoder.layers[8].get_weights()[0])
         # Save

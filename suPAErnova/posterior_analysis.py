@@ -85,7 +85,7 @@ def find_MAP(model, params, verbose=False):
                 Amin = -1.5
                 dA = (Amax-Amin)/(10-1)
                 A = np.zeros(initial_position.shape[0], dtype=np.float32) + Amin + (ichain-10)*dA
-                print('DEBUG A', A)
+
                 # add amplitude as first parameter
                 initial_position = np.c_[A, initial_position]
 
@@ -105,13 +105,12 @@ def find_MAP(model, params, verbose=False):
             Avmin = -0.5
             dA = (Avmax-Avmin)/(params['nchains']-20)
             Av = np.zeros(initial_position.shape[0], dtype=np.float32) + Avmin + (ichain-20)*dA
-            print('DEBUG Av', Av)
+
             initial_position[:, 0] = Av
 
             # transform back to u
             initial_position = model.flow.bijector.inverse(initial_position)
 
-            print('DEBUG ip', initial_position)
             # add amplitude as first parameter
             A = np.zeros(initial_position.shape[0], dtype=np.float32) 
             initial_position = np.c_[A, initial_position]
@@ -119,6 +118,9 @@ def find_MAP(model, params, verbose=False):
             if params['train_dtime']:
                 initial_position = np.c_[model.get_dtime_prior().sample(model.nsamples).numpy(),
                                          initial_position]
+
+        if params['train_dtime']:
+            initial_position[:, ind_dtime] *= params['dtime_norm']
 
         def func_bfgs(x):
             return tfp.math.value_and_gradient(
@@ -157,13 +159,13 @@ def find_MAP(model, params, verbose=False):
                 amplitude = np.array(results.position)[:, ind_amplitude]
                 amplitude_ini = initial_position[:, ind_amplitude]
             if params['train_dtime']:
-                dtime = np.array(results.position)[:, ind_dtime]
+                dtime = np.array(results.position)[:, ind_dtime]/params['dtime_norm']
                 
             MAPu = np.array(results.position)[:, model.istart_map:]
             MAPu_ini = initial_position[:, model.istart_map:]
 
             if params['train_dtime']:
-                dtime_ini = initial_position[:, -1]
+                dtime_ini = initial_position[:, ind_dtime]
                 
         else:
             dm = results.objective_value < negative_log_likelihood
@@ -182,7 +184,7 @@ def find_MAP(model, params, verbose=False):
                 amplitude[dm] = np.array(results.position)[dm, ind_amplitude]
                 amplitude_ini[dm] = initial_position[dm,  ind_amplitude]
             if params['train_dtime']:
-                dtime[dm] = np.array(results.position)[dm, ind_dtime]
+                dtime[dm] = np.array(results.position)[dm, ind_dtime]/params['dtime_norm']
                 dtime_ini[dm] = initial_position[dm, ind_dtime]
 
             MAPu[dm] = np.array(results.position)[dm, model.istart_map:]
@@ -220,7 +222,7 @@ def run_HMC(model, params, verbose=False):
         # add amplitude as first parameter
         initial_position = np.c_[tf.convert_to_tensor(model.amplitude).numpy(), initial_position]
     if params['train_dtime']:
-        initial_position = np.c_[tf.convert_to_tensor(model.dtime).numpy(), initial_position]
+        initial_position = np.c_[tf.convert_to_tensor(model.dtime).numpy()*params['dtime_norm'], initial_position]
 
     '''
     else:
@@ -234,7 +236,9 @@ def run_HMC(model, params, verbose=False):
                 
             print(initial_position.shape)
     '''    
-    step_sizes = tf.fill([initial_position.shape[0], initial_position.shape[1]], params['step_size'])
+#    step_sizes = tf.fill([initial_position.shape[0], initial_position.shape[1]], params['step_size'])
+    step_sizes = tf.zeros([initial_position.shape[0], initial_position.shape[1]]) + model.z_latent_std
+    print('Initial step sizes', step_sizes)
 
     unnormalized_posterior_log_prob = lambda *args: model(*args)
 
@@ -294,6 +298,11 @@ def run_HMC(model, params, verbose=False):
     
 def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
 
+    dm = data_loader.get_train_mask(train_data, params)
+    z_latent_std = np.std(train_data['z_latent'][dm], axis=0)
+    u_latent_std = np.std(train_data['u_latent'][dm], axis=0)
+    z_latent_std[2:] = u_latent_std
+    
     for tstr in tstrs:
 
         if tstr == 'train':
@@ -343,6 +352,8 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                                                           test_data['sigma_ae_time_tbin_cent'],
                                                           test_data['sigma_ae_time'])
 
+            log_posterior.z_latent_std = z_latent_std
+
             # Parameters to save
             data_map_batch = {}            
                 
@@ -369,7 +380,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['amplitude_map']   = log_posterior.amplitude
 
                 if params['train_dtime']:
-                    data_map_batch['dtime_map']   = log_posterior.dtime
+                    data_map_batch['dtime_map']   = log_posterior.dtime/params['dtime_norm']
 
                 data_map_batch['logp_z_latent_map'] = log_posterior.flow.log_prob(log_posterior.get_z()[:, log_posterior.istart_map:])
                 data_map_batch['logp_u_latent_map'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
@@ -377,7 +388,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 
                 tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(log_posterior.num_evaluations,
                                                                                   log_posterior.amplitude,
-                                                                                  log_posterior.dtime*50))
+                                                                                  log_posterior.dtime/params['dtime_norm']*50))
 
 
                 
@@ -392,7 +403,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                     
                 data_map_batch['u_samples'] = samples[:, :, log_posterior.istart_map:]
                 if params['train_dtime']:
-                    data_map_batch['dtime_samples'] = samples[:, :, ind_dtime]
+                    data_map_batch['dtime_samples'] = samples[:, :, ind_dtime]/params['dtime_norm']
                                 
                 if params['train_amplitude']:
                     data_map_batch['amplitude_samples'] = samples[:, :, ind_amplitude]
@@ -401,20 +412,20 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['z_samples'] = z_samples
                 data_map_batch['is_accepted'] = is_accepted
                 data_map_batch['step_sizes_final'] = step_sizes_final
-
+                print('final step sizes = ', step_sizes_final.shape, step_sizes_final[-1])
                 parameters_mean = np.mean(samples, axis=0)
                 parameters_std  = np.std(samples, axis=0)
                 z_parameters_mean = np.mean(z_samples, axis=0)
                 z_parameters_std  = np.std(z_samples, axis=0)
 
                 log_posterior.amplitude = parameters_mean[:, ind_amplitude]
-                data_map_batch['amplitude_mcmc'] = z_parameters_mean[:,ind_amplitude]
+                data_map_batch['amplitude_mcmc'] = z_parameters_mean[:, ind_amplitude]
                 data_map_batch['amplitude_mcmc_err'] = z_parameters_std[:, ind_amplitude]
 
                 if params['train_dtime']:
-                    data_map_batch['dtime_mcmc'] = parameters_mean[:, ind_dtime]
-                    data_map_batch['dtime_mcmc_err'] = parameters_std[:, ind_dtime]
-                    log_posterior.dtime = parameters_mean[:, ind_dtime]
+                    data_map_batch['dtime_mcmc'] = parameters_mean[:, ind_dtime]/params['dtime_norm']
+                    data_map_batch['dtime_mcmc_err'] = parameters_std[:, ind_dtime]/params['dtime_norm']
+                    log_posterior.dtime = parameters_mean[:, ind_dtime]/params['dtime_norm']
 
                 log_posterior.MAPu = parameters_mean[:, log_posterior.istart_map:]
                 log_posterior.MAPz = z_parameters_mean[:, log_posterior.istart_map:]

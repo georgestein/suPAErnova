@@ -76,8 +76,9 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         squared_loss = 0.5 * tf.keras.backend.square(error)
         linear_loss  = model.params['clip_delta'] * (tf.keras.backend.abs(error) - 0.5 * model.params['clip_delta'])
 
+        
         loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, squared_loss, linear_loss), axis=(-2, -1)))
-
+        loss_recon = loss*1. # reconstruction loss
 
     if model.params['loss_fn'].upper() == 'MAGNITUDE':
         cond  = x_pred >= 0.
@@ -194,7 +195,7 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         #tf.print('Kernel regularizer loss = ', model.losses, tf.math.reduce_sum(model.losses))
         loss += tf.math.reduce_sum(model.losses)
 
-    return loss, [loss]#model.params['lambda_covariance']*loss_cov]#, model.params['lambda_amplitude']*loss_amp]
+    return loss, [loss, loss_recon, loss_cov* model.params['lambda_covariance']]
 
 
 @tf.function

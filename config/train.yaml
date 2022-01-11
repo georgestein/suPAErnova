@@ -13,7 +13,7 @@ pae: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  out_file_tail: '_3stage_train_decorrelate_all' #amploss' #_1e-3clip'
+  out_file_tail: '_3stage_train_decorrelate_all_seed0' 
   #out_file_tail: 'test'
 
   # Outputs
@@ -34,7 +34,7 @@ pae: &DEFAULT
   #decode_dims: [16, 32, 64]
   #encode_dims: [16, 8, 8]
   #decode_dims: [8, 8, 16]
-  latent_dims: [1,2,3,4] #5,6,7] #, 3] #3, 2, 1] #, 4]#,2,3,4] #3, 4, 5]
+  latent_dims: [5,6] #,2,1,4] #, 2, 1, 4] 
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -43,6 +43,7 @@ pae: &DEFAULT
   stride: 6            # ensure data_dim/stride is an integer 
 
   physical_latent: !!bool True
+  train_latent_individual: !!bool False
   colorlaw_preset: !!bool True
   use_amplitude: !!bool True
   decorrelate_dust: !!bool True
@@ -63,10 +64,12 @@ pae: &DEFAULT
   lambda_amplitude_offset: !!float 500.
   
   # AE Training
-  epochs: 500 #2500
-  test_every: 100
+  epochs: 500 
+  epochs_latent: 1000
+  epochs_final: 2500 
+  test_every: 100 
   seed: 13579
-  batch_size: 57 #19 #57
+  batch_size: 57 
   overfit: !!bool True # Save model at last epoch
 
   set_data_min_val: !!float 0.0
@@ -87,9 +90,7 @@ pae: &DEFAULT
   optimizer: 'ADAM' # ADAM, ADAMW, SGD
   activation: 'RELU' # RELU, ELU, GELI, SWISH
   lr: !!float 0.005
-  lr_stage_2: !!float 0.005
-  lr_stage_3: !!float 0.005
-  lr_stage_4: !!float 0.001
+  lr_deltat: !!float 0.001
   dropout_rate: !!float 0.2
   kernel_regularizer_val: !!float 100.0
   noise_scale: !!float 1.0        # in units of observation uncertainty 

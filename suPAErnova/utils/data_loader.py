@@ -66,6 +66,9 @@ def get_train_mask_spectra(data, params):
     dm = ((data['times_orig'] > params['max_light_cut_spectra'][0]) & 
         (data['times_orig'] < params['max_light_cut_spectra'][1]))
 
+    if params['inverse_spectra_cut']:
+        dm = ~dm
+        
     return dm
 
 def get_twins_mask(data):
