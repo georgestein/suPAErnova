@@ -2,20 +2,22 @@ import tensorflow as tf
 tfk  = tf.keras
 
 import numpy as np
+import os
 
-import models.flow
+from . import flows
 
 def load_ae_models(params, verbose=False):
     """load encoder and decoder models"""                                                                                 
-    ae_model_params_fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}{:s}'.format(params['kfold'],
+    ae_model_params_fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}_{:s}'.format(params['kfold'],
                                                                           params['latent_dim'],
                                                                            '-'.join(str(e) for e in params['encode_dims']),
                                                                           params['out_file_tail'])
 
-    print('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname))
-    if verbose: print('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname))
 
-    AE_model_params = np.load('{:s}{:s}.npy'.format(params['param_dir'], ae_model_params_fname),
+    model_params_out_path = os.path.join(params['PROJECT_DIR'], f"{params['PARAM_DIR']}{ae_model_params_fname}.npy" )
+    if verbose: print(model_params_out_path)
+
+    AE_model_params = np.load(model_params_out_path,
                               allow_pickle='TRUE').item()
 
     if verbose: print(AE_model_params)
@@ -35,15 +37,16 @@ def load_ae_models(params, verbose=False):
 
 
 def load_flow(params):
-    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}{:s}'.format(params['model_dir'],
+    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}_{:s}'.format(params['MODEL_DIR'],
                                                                                       params['kfold'],
                                                                                       params['latent_dim'],
                                                                                       '-'.join(str(e) for e in params['encode_dims']),
                                                                                       params['nlayers'],
                                                                                       params['out_file_tail'])
 
-    print(params)
-    NFmodel, flow = models.flow.normalizing_flow(params)
+    checkpoint_filepath = os.path.join(params['PROJECT_DIR'], checkpoint_filepath)
+
+    NFmodel, flow = flows.normalizing_flow(params)
     NFmodel.load_weights(checkpoint_filepath)
 
     return NFmodel, flow

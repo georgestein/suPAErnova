@@ -1,20 +1,21 @@
 pae: &DEFAULT
 
   # Directory setup
-  fig_dir: '../figures/2021/'
-  data_dir: 'data/'
-  output_dir: 'outputs/'
-  model_dir: 'outputs/tensorflow_models/'
-  param_dir: 'outputs/params/'
-  log_dir: 'logs/'
+  PROJECT_DIR: '/global/cscratch1/sd/gstein/machine_learning/sn_project/suPAErnova/' # all following paths relative to here
+  FIG_DIR: 'figures/'
+  DATA_DIR: 'data/'
+  OUTPUT_DIR: 'outputs/'
+  MODEL_DIR: 'outputs/tensorflow_models/'
+  PARAM_DIR: 'outputs/params/'
+  LOG_DIR: 'logs/'
   
   train_data_file: 'data/train_data_kfold0.npy'
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  out_file_tail: '_3stage_train_decorrelate_all_seed0' 
-  #out_file_tail: 'test'
+  #out_file_tail: '3stage_train_decorrelate_all_seed0' 
+  out_file_tail: 'test'
 
   # Outputs
   model_summary: !!bool True
@@ -34,7 +35,7 @@ pae: &DEFAULT
   #decode_dims: [16, 32, 64]
   #encode_dims: [16, 8, 8]
   #decode_dims: [8, 8, 16]
-  latent_dims: [5,6] #,2,1,4] #, 2, 1, 4] 
+  latent_dims: [3] 
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -64,10 +65,10 @@ pae: &DEFAULT
   lambda_amplitude_offset: !!float 500.
   
   # AE Training
-  epochs: 500 
-  epochs_latent: 1000
-  epochs_final: 2500 
-  test_every: 100 
+  epochs: 10 #500
+  epochs_latent: 10 #1000
+  epochs_final: 10 #2500 
+  test_every: 5 # 100 
   seed: 13579
   batch_size: 57 
   overfit: !!bool True # Save model at last epoch
@@ -77,6 +78,7 @@ pae: &DEFAULT
   max_train_redshift: !!float 1.0
   max_light_cut: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
   max_light_cut_spectra: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  inverse_spectra_cut: !!bool False   # Invert max_light_cut_spectra (Only use spectra outside of range above)
   twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
   
   dropout: !!bool False

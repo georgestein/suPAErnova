@@ -1,22 +1,23 @@
 model: &DEFAULT
 
   # Directory setup
-  fig_dir: '../figures/2021/'
-  data_dir: 'data/'
-  output_dir: 'outputs/'
-  model_dir: 'outputs/tensorflow_models/'
-  param_dir: 'outputs/params/'
-  log_dir: 'logs/'
+  PROJECT_DIR: '/global/cscratch1/sd/gstein/machine_learning/sn_project/suPAErnova/' # all following paths relative to here
+  FIG_DIR: 'figures/'
+  DATA_DIR: 'data/'
+  OUTPUT_DIR: 'outputs/'
+  MODEL_DIR: 'outputs/tensorflow_models/'
+  PARAM_DIR: 'outputs/params/'
+  LOG_DIR: 'logs/'
   
   train_data_file: 'data/train_data_kfold0.npy'
   test_data_file: 'data/test_data_kfold0.npy'
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  #out_file_tail: 'test'
-  #posterior_file_tail: 'test'
-  out_file_tail: '_3stage_train_decorrelate_all_seed7'
-  posterior_file_tail: '_3stage_train_decorrelate_all_seed7_maxlightcut'
+  out_file_tail: 'test' 
+  posterior_file_tail: 'test' 
+  #out_file_tail: '_3stage_train_decorrelate_all_seed7' # file tail from AE/flow training
+  #posterior_file_tail: '_3stage_train_decorrelate_all_seed7_maxlightcut' # file tail for output
 
   # Outputs
   model_summary: !!bool True
@@ -56,7 +57,7 @@ model: &DEFAULT
 posterior:
   <<: *DEFAULT
 
-  nchains: 25
+  nchains: 1
 
   # Find MAP using lbfgs minimizer
   find_MAP: !!bool True
@@ -68,8 +69,8 @@ posterior:
   # Run HMC
   run_HMC: !!bool True
   ihmc: !!bool True # True if HMC, false if MCMC
-  num_burnin_steps: 10000 #25000
-  num_samples: 20000 #25000
+  num_burnin_steps: 100 #10000 
+  num_samples: 100 #20000 
   num_leapfrog_steps: 3
   step_size: 0.05
   dtime_norm: 1.0

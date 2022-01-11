@@ -1,0 +1,41 @@
+#!/bin/bash -l
+#SBATCH --time=04:00:00
+#SBATCH -C gpu
+#SBATCH --account=cusp
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=20
+#SBATCH -o scripts/sout/train_multiseed_3dim_nomaxlight.out
+
+conda activate tfp
+
+iseed=6
+seed=13579
+numruns=8
+
+while [ $iseed -lt $numruns ]
+do
+
+    #cp config/train_REPLACE.yaml config/train.yaml 
+    #sed -i "s/SEEDREPLACE/$seed/g" config/train.yaml
+    #sed -i "s/ISREPLACE/$iseed/g" config/train.yaml
+
+    #srun python suPAErnova/train_ae.py
+
+    #cp config/train_REPLACE.yaml config/train.yaml 
+    #sed -i "s/SEEDREPLACE/$seed/g" config/train.yaml
+    #sed -i "s/ISREPLACE/$iseed/g" config/train.yaml
+
+    #srun python suPAErnova/train_flow.py 
+
+    cp config/posterior_analysis_REPLACE.yaml config/posterior_analysis.yaml 
+    sed -i "s/SEEDREPLACE/$seed/g" config/posterior_analysis.yaml
+    sed -i "s/ISREPLACE/$iseed/g" config/posterior_analysis.yaml 
+
+    srun python scripts/run_posterior_analysis.py
+
+    ((iseed+=1))
+    ((seed+=2))
+
+done

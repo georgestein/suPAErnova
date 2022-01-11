@@ -33,9 +33,10 @@ class AutoEncoder(tf.keras.Model):
         # training 
         self.training = training
 
-        if Path(params['colorlaw_file']).is_file():
+        path_to_colorlaw_file = os.path.join(params['PROJECT_DIR'], params['colorlaw_file'])
+        if Path(path_to_colorlaw_file).is_file():
             # load preset colorlaw
-            w, CL, CL_deriv = np.loadtxt(params['colorlaw_file'], unpack=True)
+            w, CL, CL_deriv = np.loadtxt(path_to_colorlaw_file, unpack=True)
             self.colorlaw = CL
             self.colorlaw_init = tf.constant_initializer(CL)
 
