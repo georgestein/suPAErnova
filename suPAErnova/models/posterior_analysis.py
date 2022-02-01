@@ -72,7 +72,7 @@ def find_MAP(model, params, verbose=False):
             #initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
             initial_position = model.get_latent_prior().sample(model.nsamples).numpy() * 0.
             if params['train_amplitude']:
-                # replace amplitude paramater with larger variance
+                # replace amplitude parameter with larger variance
                 #initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
                 Amax = 1.5
                 Amin = -1.5
@@ -120,12 +120,14 @@ def find_MAP(model, params, verbose=False):
                 lambda x: -1./100*model(x),
                 x)
 
-        results =  tfp.optimizer.lbfgs_minimize(func_bfgs,
-                                                initial_position=initial_position,
-                                                tolerance=params['tolerance'],
-                                                x_tolerance=params['tolerance'],
-                                                max_iterations=params['max_iterations'],
-                                                num_correction_pairs=1)#,
+        results =  tfp.optimizer.lbfgs_minimize(
+            func_bfgs,
+            initial_position=initial_position,
+            tolerance=params['tolerance'],
+            x_tolerance=params['tolerance'],
+            max_iterations=params['max_iterations'],
+            num_correction_pairs=1,
+        )#,
                                                #max_line_search_iterations=params['max_line_search_iterations'])
 
         if verbose: tf.print(results.converged)
@@ -231,14 +233,16 @@ def run_HMC(model, params, verbose=False):
             hmc = tfp.mcmc.HamiltonianMonteCarlo(
                     target_log_prob_fn=unnormalized_posterior_log_prob,
                     num_leapfrog_steps=params['num_leapfrog_steps'], #to improve convergence
-                    step_size=step_sizes)
+                    step_size=step_sizes,
+            )
             #         state_gradients_are_stopped=True)    
             
 
             kernel = tfp.mcmc.SimpleStepSizeAdaptation(
                 inner_kernel=hmc,
                 num_adaptation_steps=num_warmup_steps,
-                target_accept_prob=params['target_accept_rate'])
+                target_accept_prob=params['target_accept_rate'],
+            )
             
             # Run the chain (with burn-in).
             samples, [step_sizes_final, is_accepted] = tfp.mcmc.sample_chain(
@@ -248,19 +252,23 @@ def run_HMC(model, params, verbose=False):
                 kernel           = kernel,
                 #parallel_iterations = params['nchains'],
                 trace_fn=lambda _, pkr: [pkr.inner_results.accepted_results.step_size,
-                                         pkr.inner_results.is_accepted])
+                                         pkr.inner_results.is_accepted],
+            )
         
             return samples, step_sizes_final, is_accepted
 
         else:
             # just do random walk
-            kernel = tfp.mcmc.RandomWalkMetropolis(target_log_prob_fn=unnormalized_posterior_log_prob)
+            kernel = tfp.mcmc.RandomWalkMetropolis(
+                target_log_prob_fn=unnormalized_posterior_log_prob,
+            )
             # Run the chain (with burn-in).
             samples, is_accepted = tfp.mcmc.sample_chain(
                 num_results      = params['num_samples'],
                 num_burnin_steps = params['num_burnin_steps'],
                 current_state    = initial_position,
-                kernel           = kernel)
+                kernel           = kernel,
+            )
                 #parallel_iterations = params['nchains'])
 
             return samples, np.full((samples[0].shape[0],samples[0].shape[1]), True, dtype=bool)
@@ -296,11 +304,10 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
         if nsn < batch_size:
             batch_size = nsn
         file_base = os.path.basename(os.path.splitext(params['{:s}_data_file'.format(tstr)])[0])
-        fout = '{:s}_posterior_{:02d}Dlatent_layers{:s}_{:s}'.format(file_base,
-                                                                    params['latent_dim'],
-                                                                    '-'.join(str(e) for e in params['encode_dims']),
-                                                                    params['posterior_file_tail'])
-        fout = os.path.join(params['PROJECT_DIR'], params['OUTPUT_DIR'], fout)
+
+        layer_str = '-'.join(str(e) for e in params['encode_dims'])
+        file_path_out = f"{file_base}_posterior_{params['latent_dim']:02d}Dlatent_layers{layer_str}_{params['posterior_file_tail']}"
+        file_path_out = os.path.join(params['PROJECT_DIR'], params['OUTPUT_DIR'], file_path_out)
     
         training_hist = {}
         tstart = time.time()
@@ -336,6 +343,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 # Find MAP
                 log_posterior = find_MAP(log_posterior, params, verbose=True)
 
+                # Save desired outputs in dictionary
                 data_map_batch['chain_min'] = log_posterior.chain_min
                 data_map_batch['converged'] = log_posterior.converged
                 data_map_batch['num_evaluations'] = log_posterior.num_evaluations
@@ -356,16 +364,17 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['logp_u_latent_map'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
                 data_map_batch['logJ_u_latent_map'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
                 
-                tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(log_posterior.num_evaluations,
-                                                                                  log_posterior.amplitude,
-                                                                                  log_posterior.dtime/params['dtime_norm']*50))
-
-
+                tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(
+                    log_posterior.num_evaluations,
+                    log_posterior.amplitude,
+                    log_posterior.dtime/params['dtime_norm']*50),
+                )
                 
             if params['run_HMC']:
                 samples, step_sizes_final, is_accepted = run_HMC(log_posterior, params, verbose=True)            
 
-                z_samples = log_posterior.flow.bijector.forward(samples[:, :, log_posterior.istart_map:].reshape(-1, log_posterior.latent_dim_u)).numpy().reshape(samples.shape[0], samples.shape[1], log_posterior.latent_dim_u)
+                z_samples = log_posterior.flow.bijector.forward(
+                    samples[:, :, log_posterior.istart_map:].reshape(-1, log_posterior.latent_dim_u)).numpy().reshape(samples.shape[0], samples.shape[1], log_posterior.latent_dim_u)
                 ind_amplitude = 0
                 ind_dtime = 0
                 if params['train_dtime']:
@@ -445,6 +454,6 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
             for k, v in d.items():
                 dict_save[k] = v
 
-        np.save('{:s}'.format(fout), dict_save)
+        np.save('{:s}'.format(file_path_out), dict_save)
 
 

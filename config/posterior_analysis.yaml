@@ -14,10 +14,10 @@ model: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  out_file_tail: 'test' 
-  posterior_file_tail: 'test' 
-  #out_file_tail: '_3stage_train_decorrelate_all_seed7' # file tail from AE/flow training
-  #posterior_file_tail: '_3stage_train_decorrelate_all_seed7_maxlightcut' # file tail for output
+  #out_file_tail: 'test'
+  #posterior_file_tail: 'test'
+  out_file_tail: '_3stage_train_decorrelate_all_seed6_new'
+  posterior_file_tail: '_3stage_train_decorrelate_all_seed6_maxlightcut_new'
 
   # Outputs
   model_summary: !!bool True
@@ -45,8 +45,8 @@ model: &DEFAULT
   min_train_redshift: !!float 0.02
   max_train_redshift: !!float 1.0
   max_light_cut: [-10, 40]  # don't train on SN without at least 1 spectra within this range [units = days]
-  max_light_cut_spectra: [-5, 5]  # Only use spectra within this range
-  inverse_spectra_cut: !!bool True   # Invert max_light_cut_spectra (Only use spectra outside of range above)	
+  max_light_cut_spectra: [-10, 40]  # Only use spectra within this range
+  inverse_spectra_cut: !!bool False   # Invert max_light_cut_spectra (Only use spectra outside of range above)	
   twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
 
   # Flow architecture
@@ -57,7 +57,7 @@ model: &DEFAULT
 posterior:
   <<: *DEFAULT
 
-  nchains: 1
+  nchains: 25
 
   # Find MAP using lbfgs minimizer
   find_MAP: !!bool True
@@ -69,8 +69,8 @@ posterior:
   # Run HMC
   run_HMC: !!bool True
   ihmc: !!bool True # True if HMC, false if MCMC
-  num_burnin_steps: 100 #10000 
-  num_samples: 100 #20000 
+  num_burnin_steps: 10000 #25000
+  num_samples: 20000 #25000
   num_leapfrog_steps: 3
   step_size: 0.05
   dtime_norm: 1.0

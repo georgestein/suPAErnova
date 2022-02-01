@@ -7,15 +7,35 @@ from pathlib import Path
 import os
 
 class AutoEncoder(tf.keras.Model):
-    '''Autoencoder with option for fixed amplitude parameter and colorlaw of decoder 
-        Modified to take in conditional vatiables (time of observation)'''
+    '''
+    Autoencoder with option for physical parameterization of the latent space, 
+    conditioned on the phase of observation
+    
+    The encoder maps from the data and observed phase to a physical latent space 
+    parameterized by (Delta phase, Delta M, Delta A_V, z_1, z_2, ..., z_n)
+
+    The decoder reconstructs the data, under the following form:
+    Flux(phase, wavelength) = decoder(z, phase + Delta phase) * 18^(-0.4*(Delta M + Delta A_V * CL(lambda)))
+
+    So there are:
+    Three physical latent parameters - Delta phase, Delta M, Delta A_V
+    An input or freely fit colorlaw CL(lambda)
+    Non-linear latent variables (z = z_1, z_2, ..., z_n)
+    
+    see the paper for more details
+    '''
     def __init__(self, params, training=True,
                  num_physical_latent_dims=3,
                  bn_moving_means=[0., 0., 0.]): 
         super(AutoEncoder, self).__init__()
+
         # network dimensions and layers
         self.num_physical_latent_dims = num_physical_latent_dims #[delta t, delta m, Av]
         self.params = params
+
+        # custom training or eval mode
+        self.training = training
+        self.bn_moving_means = bn_moving_means
 
         # activation functions
         if params['activation'].upper()=='RELU':
@@ -30,18 +50,14 @@ class AutoEncoder(tf.keras.Model):
             out_str = "Activation {:s} not included".format(params['activation'])
             print(out_str)
             sys.exit(out_str)
-        # training 
-        self.training = training
 
+        # Colorlaw(lambda)
         path_to_colorlaw_file = os.path.join(params['PROJECT_DIR'], params['colorlaw_file'])
         if Path(path_to_colorlaw_file).is_file():
             # load preset colorlaw
-            w, CL, CL_deriv = np.loadtxt(path_to_colorlaw_file, unpack=True)
+            wavelengths, CL = np.loadtxt(path_to_colorlaw_file, unpack=True)
             self.colorlaw = CL
             self.colorlaw_init = tf.constant_initializer(CL)
-
-            self.colorlaw_deriv = CL_deriv
-            self.colorlaw_deriv_init = tf.constant_initializer(CL_deriv)
 
         else:
             print('colorlaw file {:s} does not exist'.format(params['colorlaw_file']))
@@ -51,8 +67,6 @@ class AutoEncoder(tf.keras.Model):
             self.kernel_regularizer = tfk.regularizers.l2(params['kernel_regularizer_val'])
         else:
             self.kernel_regularizer = None
-
-        self.bn_moving_means = bn_moving_means
 
         # set random seeds
         os.environ['PYTHONHASHSEED']=str(params['seed'])
@@ -64,10 +78,23 @@ class AutoEncoder(tf.keras.Model):
         # build models
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
-#         self.amplitude_predictor = self.build_amplitude_predictor()
+        #         self.amplitude_predictor = self.build_amplitude_predictor()
 
     def build_encoder(self): 
-        '''Encoder architecture'''
+        '''
+        Encoder architecture
+
+        The encoder concatenates the data and observed phase, and then maps to a physical latent space
+        through a number of fully connected layers (Use convolutional at your own risk)
+ 
+        Latent space parameterized by (Delta phase, Delta M, Delta A_V, z_1, z_2, ..., z_n)
+
+
+        Latent parameters can be trained in independent stages. 
+        e.g.:
+        step 1: Allow Delta M and A_V to vary
+        step 2: Allow z_1, ... to vary
+        '''
     
         encode_inputs_data = tfkl.Input(shape=(self.params['n_timestep'], self.params['data_dim']))
         encode_inputs_cond = tfkl.Input(shape=(self.params['n_timestep'], self.params['cond_dim']))
@@ -81,12 +108,13 @@ class AutoEncoder(tf.keras.Model):
             encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
 
         for iunit, nunit in enumerate(self.params['encode_dims'][:-1]):
-#            print(iunit, encode_x.shape)
             # fully connected layer
             if self.params['layer_type'].upper()=='DENSE':
-                encode_x = tf.keras.layers.Dense(nunit,
-                                                 activation=self.activation,
-                                                 kernel_regularizer=self.kernel_regularizer)(encode_x)
+                encode_x = tfkl.Dense(
+                    nunit,
+                    activation=self.activation,
+                    kernel_regularizer=self.kernel_regularizer,
+                )(encode_x)
 
             elif self.params['layer_type'].upper()=='CONVOLUTION':
                 # reshape (batch_shape, timesteps, spectra) event
@@ -96,29 +124,35 @@ class AutoEncoder(tf.keras.Model):
                     # convolutional layer
                     encode_x = tf.expand_dims(encode_x, axis=-1)
 
-                    encode_x = tfkl.Conv2D(nunit,
-                                           kernel_size=(1, self.params['kernel_size']),
-                                           strides=(1, self.params['stride']),
-                                           activation=self.activation,
-                                           kernel_regularizer=self.kernel_regularizer,
-                                           padding='same',
-                                           input_shape=(self.params['n_timestep'], self.params['data_dim']))(encode_x)
+                    encode_x = tfkl.Conv2D(
+                        nunit,
+                        kernel_size=(1, self.params['kernel_size']),
+                        strides=(1, self.params['stride']),
+                        activation=self.activation,
+                        kernel_regularizer=self.kernel_regularizer,
+                        padding='same',
+                        input_shape=(self.params['n_timestep'], self.params['data_dim']),
+                    )(encode_x)
                 else:
                     # convolutional layer
-                    encode_x = tfkl.Conv2D(nunit,
-                                           kernel_size=(1, self.params['kernel_size']),
-                                           strides=(1, self.params['stride']),
-                                           activation=self.activation,
-                                           padding='same',
-                                           kernel_regularizer=self.kernel_regularizer)(encode_x)#,
+                    encode_x = tfkl.Conv2D(
+                        nunit,
+                        kernel_size=(1, self.params['kernel_size']),
+                        strides=(1, self.params['stride']),
+                        activation=self.activation,
+                        padding='same',
+                        kernel_regularizer=self.kernel_regularizer,
+                    )(encode_x)
 
             else:
                 sys.exit('Layer type {:s} does not exist'.format(params['layer_type']))
                 
             if self.params['dropout']:
                 # dropout along features dimension, keeping dropout along time dimension consistent
-                encode_x = tfkl.Dropout(self.params['dropout_rate'],
-                                        noise_shape=[None, 1, None])(encode_x, training=self.training)
+                encode_x = tfkl.Dropout(
+                    self.params['dropout_rate'],
+                    noise_shape=[None, 1, None],
+                )(encode_x, training=self.training)
 
             if self.params['batchnorm']:
                 encode_x = tfkl.BatchNormalization()(encode_x)
@@ -134,20 +168,22 @@ class AutoEncoder(tf.keras.Model):
             encode_x = tfkl.concatenate([encode_x, encode_inputs_cond])
 
         # dense layers
-        encode_x = tfkl.Dense(self.params['encode_dims'][-1],
-                              activation=self.activation,
-                              kernel_regularizer=self.kernel_regularizer)(encode_x)
+        encode_x = tfkl.Dense(
+            self.params['encode_dims'][-1],
+            activation=self.activation,
+            kernel_regularizer=self.kernel_regularizer,
+        )(encode_x)
 
-        encode_x = tfkl.Dense(self.params['latent_dim']+self.num_physical_latent_dims, 
-                              kernel_regularizer=self.kernel_regularizer,
-                              use_bias=False)(encode_x)
-
+        encode_x = tfkl.Dense(
+            self.params['latent_dim']+self.num_physical_latent_dims, 
+            kernel_regularizer=self.kernel_regularizer,
+            use_bias=False,
+        )(encode_x)
         
-        # need to mask time samples that do not exist = take mean of non masked latent variables
+        # Need to mask time samples that do not exist = take mean of non masked latent variables
         encode_outputs = tf.reduce_sum(encode_x*encode_inputs_mask, axis=-2)/tf.math.maximum(tf.reduce_sum(encode_inputs_mask, axis=-2), 1) 
 
         if self.params['physical_latent']:
-            # encode_color   = tf.nn.relu(encode_outputs[..., -1:])
             encode_dtime     = encode_outputs[..., 0:1] # delta time
             encode_amplitude = encode_outputs[..., 1:2] # delta m
             encode_color     = encode_outputs[..., 2:3] # color Av
@@ -178,8 +214,7 @@ class AutoEncoder(tf.keras.Model):
                     
             # Make dtime, damplitude, and Av of nonmasked SN have mean 0
             # This roundabout way is required due to the dreaded TensorFlow error:
-            # TypeError: 'Tensor' object does not support item assignment
-                
+            # TypeError: 'Tensor' object does not support item assignment    
             if self.training:
                 is_kept = tf.reduce_max(encode_inputs_mask[:, :, 0], axis=-1)
                 
@@ -204,41 +239,52 @@ class AutoEncoder(tf.keras.Model):
 
 
     def build_decoder(self):
-        '''Decoder architecture''' 
+        '''
+        Decoder architecture
+
+
+        The decoder reconstructs the data, under the following form:
+        Flux(phase, wavelength) = decoder(z, phase + Delta phase) * 18^(-0.4*(Delta M + Delta A_V * CL(lambda)))
+        ''' 
 
         decode_inputs_latent = tfkl.Input(shape=(self.params['latent_dim']+self.num_physical_latent_dims,), name='latent_params')
         decode_inputs_cond   = tfkl.Input(shape=(self.params['n_timestep'], self.params['cond_dim']), name='conditional_params')
         decode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], 1))
 
-        # repeat latent vector to match number of data timesteps
+        # Repeat latent vector to match number of data timesteps
         decode_latent = tfkl.RepeatVector(self.params['n_timestep'])(decode_inputs_latent)
 
+        # Set up physical latent space (if desired)
         if self.params['physical_latent']:
-            #decode_color       = tf.exp(decode_latent[..., -1:]) # ensure colorlaw latent parameter>=0
             decode_dtime     = decode_latent[..., 0:1]
             decode_amplitude = decode_latent[..., 1:2]
-            decode_color     = decode_latent[..., 2:3] # ensure colorlaw latent parameter>=0
+            decode_color     = decode_latent[..., 2:3] 
 
             decode_latent = decode_latent[..., self.num_physical_latent_dims:]
-            # add in latent parameter after first layer
-            decode_x = tfkl.concatenate([decode_latent,
-                                         decode_inputs_cond + decode_dtime])
+
+            # Concatenate physical (non time-varying) parameters
+            decode_x = tfkl.concatenate([
+                decode_latent,
+                decode_inputs_cond + decode_dtime,
+            ])
+            
         else:
             decode_x = tfkl.concatenate([decode_latent, decode_inputs_cond])
 
-        decode_x = tf.keras.layers.Dense(self.params['decode_dims'][0],
+        decode_x = tfkl.Dense(self.params['decode_dims'][0],
                                          activation=self.activation,
                                          kernel_regularizer=self.kernel_regularizer)(decode_x)
 
-        #decode_x = tfkl.concatenate([decode_x, decode_inputs_cond])
-        # add either convolutional or fully connected block
+        # Add series of either convolutional or fully connected block
         for iunit, nunit in enumerate(self.params['decode_dims'][1:]):
 
             if self.params['layer_type'].upper()=='DENSE':
                 # fully connected network
-                decode_x = tf.keras.layers.Dense(nunit,
-                                                 activation=self.activation,
-                                                 kernel_regularizer=self.kernel_regularizer)(decode_x)
+                decode_x = tfkl.Dense(
+                    nunit,
+                    activation=self.activation,
+                    kernel_regularizer=self.kernel_regularizer,
+                )(decode_x)
 
 
             elif self.params['layer_type'].upper()=='CONVOLUTION':
@@ -247,14 +293,14 @@ class AutoEncoder(tf.keras.Model):
                 # keep first dimension of kernel_size and stride as 1 in order to operate along spectra only
                 if iunit==0:
 
-                    decode_x = tf.keras.layers.Dense(self.encode_x_shape[-2]*self.encode_x_shape[-1],
+                    decode_x = tfkl.Dense(self.encode_x_shape[-2]*self.encode_x_shape[-1],
                                                      activation=self.activation,
                                                      kernel_regularizer=self.kernel_regularizer)(decode_x)
 
                     decode_x = tfkl.Reshape((self.params['n_timestep'], self.encode_x_shape[-2], self.encode_x_shape[-1]))(decode_x)
 
 
-                decode_x = tf.keras.layers.Conv2DTranspose(nunit,
+                decode_x = tfkl.Conv2DTranspose(nunit,
                                                            kernel_size=(1, self.params['kernel_size']),
                                                            strides=(1, self.params['stride']),
                                                            activation=self.activation,
@@ -266,7 +312,7 @@ class AutoEncoder(tf.keras.Model):
                 sys.exit('Layer type {:s} does not exist'.format(params['layer_type']))
 
 #            if self.params['dropout']:
-#                decode_x = tf.keras.layers.Dropout(self.params['dropout_rate'],
+#                decode_x = tfkl.Dropout(self.params['dropout_rate'],
 #                                                   noise_shape=[None, 1, None])(decode_x, training=self.training)
                 
             if self.params['batchnorm']:
@@ -276,19 +322,21 @@ class AutoEncoder(tf.keras.Model):
             decode_outputs = tfkl.Reshape((self.params['n_timestep'], decode_x.shape[-2]*decode_x.shape[-1]))(decode_x)
 
         else:
-            decode_outputs = tf.keras.layers.Dense(self.params['data_dim'],
+            decode_outputs = tfkl.Dense(self.params['data_dim'],
                                                    kernel_regularizer=self.kernel_regularizer)(decode_x)
 
         if self.params['colorlaw_preset']:
-            # use input colorlaw, SALT2 or Fitzpatrick99
-            decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
-                                                    kernel_initializer=self.colorlaw_init,
-                                                    name='color_law',
-                                                    use_bias=False,
-                                                    trainable=False)(decode_color)
+            # Use input colorlaw, likely Fitzpatrick99
+            decode_colorlaw = tfkl.Dense(
+                self.params['data_dim'],
+                kernel_initializer=self.colorlaw_init,
+                name='color_law',
+                use_bias=False,
+                trainable=False,
+            )(decode_color)
                 
         else:
-            decode_colorlaw = tf.keras.layers.Dense(self.params['data_dim'],
+            decode_colorlaw = tfkl.Dense(self.params['data_dim'],
                                                     kernel_initializer=self.colorlaw_init,
                                                     name='color_law',
                                                     use_bias=False,

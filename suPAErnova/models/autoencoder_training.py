@@ -26,29 +26,28 @@ from . import autoencoder
 from . import losses
 from . import loader as model_loader
 
+#@tf.function
 def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data):
     """Run one training step"""
     training_loss, training_loss_terms = 0., [0., 0., 0.]
 
     # shuffle indices each epoch for batches
     # batch feeding can be improved, but the various types of specialized masks/dropout
-    # are easy to implement in this non-optimized fashion
-    #tf.random.set_seed(epoch)
-    #inds = tf.range(train_data['spectra'].shape[0])
-    #tf.random.shuffle(inds)
-    #inds = tf.reshape(inds, [-1, params['batch_size']])
+    # are easy to implement in this non-optimized fashion, and the dataset is small
     np.random.seed(epoch)
     inds = np.arange(train_data['spectra'].shape[0])
     np.random.shuffle(inds)
     inds = inds.reshape(-1, model.params['batch_size'])
 
+
+    # Add noise during training drawn from observational uncertainty
     if model.params['train_noise']:
-        # add noise during training drawn from observational uncertainty
 #        noise_vary = params['noise_scale']*tf.math.abs(tf.random.normal(train_data['mask'].shape, mean=train_data['spectra'], stddev=train_data['sigma']))
         noise_vary = model.params['noise_scale']*np.abs(np.random.normal(0., train_data['sigma']).astype(np.float32))
     else:
         noise_vary = np.zeros(train_data['mask'].shape, dtype=np.float32)
 
+    # Mask certain spectra
     mask_vary = np.ones(train_data['mask'].shape, dtype=np.float32)
     if model.params['vary_mask']:
         # masks individual spectra of SN. Slow, but works
@@ -66,10 +65,13 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     mask_vary[~train_data['mask_sn']] = 0.
     mask_vary[~train_data['mask_spectra']] = 0.
 
+    # Vary phase by observational uncertainty
     dtime = np.zeros(train_data['times'].shape[0], dtype=np.float32)
     if model.params['train_time_uncertainty']:
-        # equal sigma for all SN
+        # Equal sigma for all SN
         # dtime = np.random.normal(0, model.params['time_scale']/50, size=(train_data['times'].shape[0], 1, 1))
+
+        # Sigma from SALT2 fits
         dtime = np.random.normal(0, train_data['dphase']/50)[:, None, None].astype(np.float32)
         
     if epoch == 0 :
@@ -88,12 +90,14 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
                                             tf.gather(train_data['luminosity_distance'], inds_batch),
                                             optimizer)
         '''
-        training_loss_b, training_loss_terms_b = compute_apply_gradients_ae(model, 
-                                                                            train_data['spectra'][inds_batch] + noise_vary[inds_batch], 
-                                                                            train_data['times'][inds_batch] + dtime[inds_batch],
-                                                                            train_data['sigma'][inds_batch],
-                                                                            train_data['mask'][inds_batch] * mask_vary[inds_batch],
-                                                                            optimizer)
+        training_loss_b, training_loss_terms_b = compute_apply_gradients_ae(
+            model, 
+            train_data['spectra'][inds_batch] + noise_vary[inds_batch], 
+            train_data['times'][inds_batch] + dtime[inds_batch],
+            train_data['sigma'][inds_batch],
+            train_data['mask'][inds_batch] * mask_vary[inds_batch],
+            optimizer,
+        )
 
         training_loss += training_loss_b.numpy()
         for ii in range(len(training_loss_terms_b)):
@@ -103,14 +107,21 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     
     return training_loss, training_loss_terms
 
+#@tf.function
 def test_step(model, data):  
     """Calculate test loss"""
     mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
     mask_vary[~data['mask_sn']] = 0.
     mask_vary[~data['mask_spectra']] = 0.
 
-    test_loss, test_loss_terms = losses.compute_loss_ae(model, data['spectra'], data['times'], data['sigma'], data['mask']*mask_vary)
-
+    test_loss, test_loss_terms = losses.compute_loss_ae(
+        model,
+        data['spectra'],
+        data['times'],
+        data['sigma'],
+        data['mask']*mask_vary,
+    )
+    
     return test_loss, test_loss_terms
 
 def calculate_mean_parameters_batches(model, data, nbatches):
@@ -130,16 +141,16 @@ def calculate_mean_parameters_batches(model, data, nbatches):
     for batch in range(nbatches):
         inds_batch = sorted(inds[batch])
 
-        z = model.encode(data['spectra'][inds_batch],
-                          data['times'][inds_batch],
-                          data['mask'][inds_batch] * mask_vary[inds_batch]).numpy()
-
+        z = model.encode(
+            data['spectra'][inds_batch],
+            data['times'][inds_batch],
+            data['mask'][inds_batch] * mask_vary[inds_batch],
+        ).numpy()
         
         dm = mask_vary[inds_batch, 0, 0] == 1.
         dtime_mean += np.sum(z[dm, 0])
         amp_mean   += np.sum(z[dm, 1])
         color_mean += np.sum(z[dm, 2])
-
 
     dtime_mean /= data['mask_sn'].sum()
     dtime_mean = np.float32(dtime_mean)
@@ -152,7 +163,7 @@ def calculate_mean_parameters_batches(model, data, nbatches):
 
     return dtime_mean, amp_mean, color_mean
 
-def train_model(train_data, test_data, model):
+def train_model(train_data, val_data, test_data, model):
     """
     Train model.
     """
@@ -162,77 +173,122 @@ def train_model(train_data, test_data, model):
     lr = model.params['lr']
     if model.params['train_stage'] == model.params['latent_dim']+2:
         lr = model.params['lr_deltat']
+    lr_ini = lr
+    
+    if model.params['scheduler'].upper()=='EXPONENTIAL':
+        # Set up learning rate scheduler
+        lr = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=lr,
+            decay_steps=model.params['lr_decay_steps'],
+            decay_rate=model.params['lr_decay_rate'],
+        )
         
+    # Set up optimizer
     if model.params['optimizer'].upper() == 'ADAM':
         optimizer  = tf.keras.optimizers.Adam(learning_rate=lr)
     elif model.params['optimizer'].upper() == 'ADAMW':
-        optimizer  = tfa.optimizers.AdamW(learning_rate=lr)
+
+        wd_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=lr_ini/10,
+            decay_steps=model.params['lr_decay_steps'],
+            decay_rate=model.params['lr_decay_rate'],
+	)
+
+        optimizer  = tfa.optimizers.AdamW(learning_rate=lr, weight_decay=lambda: None)
+        optimizer.weight_decay = lambda: wd_schedule(optimizer.iterations)
+        
     elif model.params['optimizer'].upper() == 'SGD':
         optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=0.9)
     else:
         print("Optimizer {:s} does not exist".format(params['optimizer']))
-            
+
+    
     nbatches = train_data['spectra'].shape[0]//model.params['batch_size']
     
-    test_every = model.params['test_every']
-
     ncolumn_loss = 4
-    training_loss_hist = np.zeros((model.params['epochs'], ncolumn_loss))
-    test_loss_hist     = np.zeros((model.params['epochs']//test_every, ncolumn_loss))
+    train_loss_hist = np.zeros((model.params['epochs'], ncolumn_loss))
+    val_loss_hist     = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
+    test_loss_hist     = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
 
-    test_loss_min = 1.e9
-    test_iteration = 0
-    test_iteration_best = 0 
+    val_loss_min = 1.e9
+    val_iteration = 0
+    val_iteration_best = 0 
     for epoch in range(model.params['epochs']):
+
         is_best = False
         start_time = time.time()
 
-        training_loss, training_loss_terms = train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data)
+        training_loss, training_loss_terms = train_step(
+            model,
+            optimizer,
+            compute_apply_gradients_ae,
+            epoch,
+            nbatches,
+            train_data,
+        )
         
         # get average loss over batches
-        training_loss_hist[epoch, 0] = epoch 
-        training_loss_hist[epoch, 1] = training_loss_terms[0]
-        training_loss_hist[epoch, 2] = training_loss_terms[1]
-        training_loss_hist[epoch, 3] = training_loss_terms[2]
+        train_loss_hist[epoch, 0] = epoch 
+        train_loss_hist[epoch, 1] = training_loss_terms[0]
+        train_loss_hist[epoch, 2] = training_loss_terms[1]
+        train_loss_hist[epoch, 3] = training_loss_terms[2]
 
         # test on test spectra
         end_time = time.time()
 
-        if epoch % test_every == 0:
+        if epoch % model.params['val_every'] == 0:
             t_epoch  = end_time-start_time
+            
+            # Calculate test loss
+            val_loss, val_loss_terms = test_step(model, val_data)
+            val_loss_hist[val_iteration, 0] = epoch 
+            val_loss_hist[val_iteration, 1] = val_loss_terms[0].numpy()
+            val_loss_hist[val_iteration, 2] = val_loss_terms[1].numpy()
+            val_loss_hist[val_iteration, 3] = val_loss_terms[2].numpy()
 
             # Calculate test loss
             test_loss, test_loss_terms = test_step(model, test_data)
-            test_loss_hist[test_iteration, 0] = epoch 
-            test_loss_hist[test_iteration, 1] = test_loss_terms[0].numpy()
-            test_loss_hist[test_iteration, 2] = test_loss_terms[1].numpy()
-            test_loss_hist[test_iteration, 3] = test_loss_terms[2].numpy()
+            test_loss_hist[val_iteration, 0] = epoch 
+            test_loss_hist[val_iteration, 1] = test_loss_terms[0].numpy()
+            test_loss_hist[val_iteration, 2] = test_loss_terms[1].numpy()
+            test_loss_hist[val_iteration, 3] = test_loss_terms[2].numpy()
 
-            print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E} {:.2E} {:.2E}\ntest loss: {:.2E} {:.2E} {:.2E}'.format(epoch,
-                                                                                             end_time-start_time,
-                                                                                             training_loss_terms[0],
-                                                                                             training_loss_terms[1],
-                                                                                             training_loss_terms[2],
-                                                                                             test_loss_terms[0],
-                                                                                             test_loss_terms[1],
-                                                                                             test_loss_terms[2]))
+            print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E} {:.2E} {:.2E}\nval loss: {:.2E} {:.2E} {:.2E}\ntest loss: {:.2E} {:.2E} {:.2E}'.format(
+                epoch,
+                end_time-start_time,
+                training_loss_terms[0],
+                training_loss_terms[1],
+                training_loss_terms[2],
+                val_loss_terms[0],
+                val_loss_terms[1],
+                val_loss_terms[2],
+                test_loss_terms[0],
+                test_loss_terms[1],
+                test_loss_terms[2],
+            ))
+            
+            if model.params['scheduler'].upper() == 'EXPONENTIAL':
+                print("Learning rate is currently: {:.6f}".format(optimizer._decayed_lr('float32').numpy()))
 
-            previous_test_decrease = test_iteration - test_iteration_best # number of test iterations since last loss decrease
+            if model.params['optimizer'].upper() == 'ADAMW':
+                print("Weight decay is currently: {:.6f}".format(optimizer.weight_decay))
+                
+            previous_val_decrease = val_iteration - val_iteration_best # number of validation iterations since last loss decrease
 
-            if test_loss.numpy() < test_loss_min:
+            if val_loss.numpy() < val_loss_min:
                 print('Best test epoch so far. Saving model.')
                 is_best = True
-                test_iteration_best = test_iteration
-                test_loss_min = min(test_loss_min, test_loss.numpy())
+                val_iteration_best = val_iteration
+                val_loss_min = min(val_loss_min, val_loss.numpy())
                 save_model(model, model.params, train_data, nbatches, is_best=is_best)
 
-            test_iteration += 1
+            val_iteration += 1
             
         # Save model at last epoch
         if epoch == model.params['epochs']-1:
             save_model(model, model.params, train_data, nbatches)
             
-    return training_loss_hist, test_loss_hist
+    return train_loss_hist, val_loss_hist, test_loss_hist
 
 
 def save_model(model, params, data, nbatches, is_best=False):

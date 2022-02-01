@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+import math
 
 def load_data(filename, remove_negatives=True, scale_sigma_observed=True, set_data_min_val=0.,
               print_params=False, npz=False, to_tensor=False):
@@ -41,6 +42,26 @@ def load_data(filename, remove_negatives=True, scale_sigma_observed=True, set_da
         data['sigma'] = 1.4*data['sigma'] + 4e-10
         
     return data
+
+def split_train_and_val(train_data, params):
+    """
+    Split training set into train and val
+    """
+    num_samples = train_data['spectra'].shape[0]
+    num_val_samples = math.ceil(num_samples*params['val_frac'])
+    num_train_samples = num_samples - num_val_samples
+
+    # Train data is already sorted, so take val from end of arrays
+    val_data = {}
+    for k, v in train_data.items():
+        # print(k, v.dtype, v.shape)
+        if v.shape[0] == num_samples:
+            val_data[k] = v[-num_val_samples:]
+            train_data[k] = v[:-num_val_samples] # remove samples now in val set from train set
+        else:
+            val_data[k] = v
+
+    return train_data, val_data
 
 def get_train_mask(data, params):
     """Mask out supernovae that are not desired to train on"""

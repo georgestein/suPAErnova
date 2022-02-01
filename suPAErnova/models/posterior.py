@@ -64,6 +64,7 @@ class LogPosterior(tfk.Model):
         self.latent_dim = self.encoder((self.x, self.x_c, self.mask_x)).shape[1] # latent space dimensionality
 
         self.latent_dim_u = self.latent_dim
+
         # Don't use time shift or amplitude in normalizing flow
         # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
         # And this is the parameter we want to fit to get "cosmological distances", thus we don't want a prior on it

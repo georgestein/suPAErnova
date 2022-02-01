@@ -36,19 +36,13 @@ from . import losses
 from . import loader as model_loader
 
 
-def train_flow(data, params, verbose=False):
+def train_flow(train_data, params, verbose=False):
     """Train a simple MAF model for density estimation. 
     Can definitely be improved/should be later,
     as the flow does not always train well in high dimensions
     """
 
-    if params['optimizer'].upper() == 'ADAM':
-        optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
-    elif params['optimizer'].upper() == 'ADAMW':
-        optimizer  = tfa.optimizers.AdamW(params['lr_flow'])
-    else:
-        print("Optimizer {:s} does not exist".format(params['optimizer']))
-
+    optimizer  = tf.keras.optimizers.Adam(params['lr_flow'])
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
@@ -58,32 +52,41 @@ def train_flow(data, params, verbose=False):
     else:
         istart = 3
         
-    z_latent = tf.convert_to_tensor(data['z_latent'][:, istart:], dtype=tf.float32)
+    z_latent = tf.convert_to_tensor(train_data['z_latent'][:, istart:], dtype=tf.float32)
 
     print('Size of training data = ', z_latent.shape)
-    checkpoint_filepath = '{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}_{:s}'.format(params['MODEL_DIR'],
-                                                                                      params['kfold'],
-                                                                                      params['latent_dim'],
-                                                                                      '-'.join(str(e) for e in params['encode_dims']),
-                                                                                      params['nlayers'],
-                                                                                      params['out_file_tail'])
+    layers_str = '-'.join(str(e) for e in params['encode_dims'])
+    checkpoint_filepath = (f"{params['MODEL_DIR']}flow_kfold{params['kfold']}_{params['latent_dim']:02d}Dlatent_"
+                           + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}"
 
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(params['PROJECT_DIR'],
-                                                                           checkpoint_filepath),
-                                                     save_weights_only=True,
-                                                     verbose=1,
-                                                     save_freq=min(100, params['epochs_flow']))
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=os.path.join(
+            params['PROJECT_DIR'],
+            checkpoint_filepath,
+        ),
+        save_weights_only=True,
+        verbose=1,
+        save_freq=min(100, params['epochs_flow']),
+    )
+
+    earlystopping_callback = tf.keras.callbacks.EarlyStopping(
+        monitor='loss',
+        patience=25,
+    )
 
     NFmodel, flow = flows.normalizing_flow(params, optimizer=optimizer)
 
-    NFmodel.fit(x=z_latent,
-              y=tf.zeros((z_latent.shape[0], 0), dtype=tf.float32),
-              batch_size=params['batch_size'],
-              epochs=params['epochs_flow'],
-              steps_per_epoch=z_latent.shape[0]//params['batch_size'], 
-              shuffle=True,
-              verbose=verbose,
-              callbacks=[cp_callback])
+    NFmodel.fit(
+        x=z_latent,
+        y=tf.zeros((z_latent.shape[0], 0), dtype=tf.float32),
+        validation_split=params['val_frac'],
+        batch_size=params['batch_size'],
+        epochs=params['epochs_flow'],
+        steps_per_epoch=z_latent.shape[0]//params['batch_size'], 
+        shuffle=True,
+        verbose=verbose,
+        callbacks=[cp_callback, earlystopping_callback],
+    )
 
     NFmodel.trainable=False
     print('Done training flow!')
