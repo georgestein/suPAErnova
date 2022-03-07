@@ -29,7 +29,7 @@ def get_apply_grad_fn():
 @tf.function #(experimental_relax_shapes=True)
 def compute_loss_ae(model, x, cond, sigma, mask):
 
-    # get latent paramaters
+    # get latent parameters
     z      = model.encode(x, cond, mask)
 
     # from latent parameters and observation times reconstruct data
@@ -50,26 +50,35 @@ def compute_loss_ae(model, x, cond, sigma, mask):
     if model.params['loss_fn'].upper() == 'MAE':
         loss = tf.reduce_sum( tf.reduce_sum( tf.abs((x - x_pred) * mask), axis=(-2,-1)))
 
-    if model.params['loss_fn'].upper() == 'wMAE':
+    if model.params['loss_fn'].upper() == 'WMAE':
         loss = tf.reduce_sum( tf.reduce_sum( tf.abs((x - x_pred)/(sigma + noise_floor)) * mask, axis=(-2,-1)))
 
     if model.params['loss_fn'].upper() == 'MSE':
         loss = tf.reduce_mean( tf.reduce_sum( (x - x_pred)**2 * mask, axis=(-2,-1)))
 
-    if model.params['loss_fn'].upper() == 'wMSE':
+    if model.params['loss_fn'].upper() == 'WMSE':
         loss = tf.reduce_mean( tf.reduce_sum( (x - x_pred)**2/(sigma + noise_floor)**2 * mask, axis=(-2,-1)))
 
     if model.params['loss_fn'].upper() == 'RMSE':
         loss = tf.reduce_mean( tf.reduce_sum( (x - x_pred)**2 * mask, axis=(-2,-1))/tf.reduce_sum(mask, axis=-2))
 
-    if model.params['loss_fn'].upper() == 'wRMSE':
+    if model.params['loss_fn'].upper() == 'WRMSE':
         loss = tf.reduce_mean( tf.sqrt( tf.reduce_sum( (x - x_pred)**2/(sigma + noise_floor)**2 * mask, axis=(-2,-1)) / tf.reduce_sum(mask, axis=-2)))
 
     if model.params['loss_fn'].upper() == 'NGLL':
         loss = tf.reduce_mean( tf.reduce_sum( (tf.math.log(sigma**2 * mask + noise_floor)/2 + (x - x_pred)**2/(2*sigma**2+noise_floor)) * mask, axis=(-2,-1)))#/tf.reduce_sum(mask, axis=-2))        
 
     if model.params['loss_fn'].upper() == 'HUBER':
-        clip_delta = 10
+        error = (x - x_pred) * mask
+        cond  = tf.keras.backend.abs(error) < model.params['clip_delta']
+
+        squared_loss = 0.5 * tf.keras.backend.square(error)
+        linear_loss  = model.params['clip_delta'] * (tf.keras.backend.abs(error) - 0.5 * model.params['clip_delta'])
+
+        
+        loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, squared_loss, linear_loss), axis=(-2, -1)))
+
+    if model.params['loss_fn'].upper() == 'WHUBER':
         error = (x - x_pred)/(sigma + noise_floor) * mask
         cond  = tf.keras.backend.abs(error) < model.params['clip_delta']
 
@@ -78,7 +87,6 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
         
         loss = tf.reduce_mean(tf.reduce_sum( tf.where(cond, squared_loss, linear_loss), axis=(-2, -1)))
-        loss_recon = loss*1. # reconstruction loss
 
     if model.params['loss_fn'].upper() == 'MAGNITUDE':
         cond  = x_pred >= 0.
@@ -96,6 +104,8 @@ def compute_loss_ae(model, x, cond, sigma, mask):
             axis=(-2, -1))))
 
         loss += loss_amp
+
+    loss_recon = loss*1. # reconstruction loss
 
     # Punish overall amplitude offset of spectra from SN
     if model.params['iloss_amplitude_offset']:
@@ -127,7 +137,8 @@ def compute_loss_ae(model, x, cond, sigma, mask):
     # PCAAE: Principal Component Analysis Autoencoder for organising the latent space of generative networks - https://arxiv.org/abs/2006.07827
     if model.params['iloss_covariance']:
         # apply covariace loss to the phycal model parameters
-        # amplitude is from peculiar velocity and color is from line-of-sight dust. So amplitude should be uncorrelated with the other latent parameters, and perhaps colour should as well.
+        # amplitude is mostly from peculiar velocity and color is from line-of-sight dust.
+        # So amplitude should be uncorrelated with the other latent parameters, and perhaps colour should as well.
 
         #if model.params['train_stage'] == 0:
         #    z_cov = z[:, 1:] # don't use amplitude == 0
@@ -141,7 +152,7 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         # subtract mean from latent variables
         z_cov = (z_cov - mean_z)*is_kept
 
-        #mz = tf.matmul(tf.transpose(mean_z), mean_z)
+        # mz = tf.matmul(tf.transpose(mean_z), mean_z)
         cov_z = tf.matmul(tf.transpose(z_cov), z_cov)/num_kept
 
         std_z = tf.sqrt( tf.reduce_sum(z_cov**2, axis=0)/num_kept ) # mean has already been subtracted
@@ -157,7 +168,8 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
         # only punish covariance of latent parameters with amplitude (first latent parameter)
         # and possibly with each other
-        # Colorlaw can be correlated with non-amplitude latent parameters, as e.g. spiral galaxies host bluer, broader supernovae, which are also more likely to experience foreground dust. Or not
+        # Colorlaw can be correlated with non-amplitude latent parameters,
+        # as e.g. spiral galaxies host bluer, broader supernovae, which are also more likely to experience foreground dust. Or not
         istart = 2
         iend   = cov_z.shape[0]
         #cov_mask = np.ones( (cov_z.shape[0], cov_z.shape[0]), dtype=np.float32)

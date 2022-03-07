@@ -66,8 +66,11 @@ def main():
     test_data['mask_spectra'] = data_loader.get_train_mask_spectra(test_data, params)
 
     # Split off validation set from training set
-    train_data, val_data = data_loader.split_train_and_val(train_data, params)
-    
+    if params['use_val']:
+        train_data, val_data = data_loader.split_train_and_val(train_data, params)
+    else:
+        val_data = test_data
+        
     for il, latent_dim in enumerate(params['latent_dims']):
 
         params['latent_dim'] = latent_dim
@@ -94,7 +97,7 @@ def main():
             AEmodel.decoder.summary()
 
         print('Training model with {:d} latent dimensions'.format(latent_dim))
-
+        print('Running training stage ', params['train_stage'])
         # Train model, splitting into seperate training stages for seperate model parameters, if desired.
         training_loss, val_loss, test_loss = autoencoder_training.train_model(
             train_data,
@@ -137,7 +140,7 @@ def main():
                     final_layer_weights[:, 3:] = final_layer_weights_init[:, 3:]/100
                     
             if params['train_stage'] == params['num_training_stages'] - 1: # add in delta t
-                final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/1000
+                final_layer_weights[:, 0] = final_layer_weights_init[:, 0]/100
 
             encoder.layers[final_dense_layer].set_weights([final_layer_weights])
 

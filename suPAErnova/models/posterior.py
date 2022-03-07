@@ -61,7 +61,11 @@ class LogPosterior(tfk.Model):
         self.sigma_time_bin_cent = sigma_time_bin_cent
         self.sigma_time_grid     = sigma_time_grid
  
-        self.latent_dim = self.encoder((self.x, self.x_c, self.mask_x)).shape[1] # latent space dimensionality
+        self.latent_dim = self.encoder((
+            self.x,
+            self.x_c,
+            self.mask_x,
+        )).shape[1] # latent space dimensionality
 
         self.latent_dim_u = self.latent_dim
 
@@ -71,7 +75,13 @@ class LogPosterior(tfk.Model):
         self.istart_map = 2
         self.latent_dim_u -= 2
 
-        self.MAPtrue = self.flow.bijector.inverse( self.encoder((self.x, self.x_c, self.mask_x))[:, -self.latent_dim_u:] )
+        self.MAPtrue = self.flow.bijector.inverse(
+            self.encoder(
+                (self.x,
+                 self.x_c,
+                 self.mask_x),
+            )[:, -self.latent_dim_u:],
+        )
         
         # Initializations. Save initial values as seperate variables, as variables will be updated
         if self.params['rMAPini']:

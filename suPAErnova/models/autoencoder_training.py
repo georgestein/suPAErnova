@@ -39,7 +39,6 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
     np.random.shuffle(inds)
     inds = inds.reshape(-1, model.params['batch_size'])
 
-
     # Add noise during training drawn from observational uncertainty
     if model.params['train_noise']:
 #        noise_vary = params['noise_scale']*tf.math.abs(tf.random.normal(train_data['mask'].shape, mean=train_data['spectra'], stddev=train_data['sigma']))
@@ -189,16 +188,22 @@ def train_model(train_data, val_data, test_data, model):
     elif model.params['optimizer'].upper() == 'ADAMW':
 
         wd_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=lr_ini/10,
+            initial_learning_rate=model.params['weight_decay_rate'],
             decay_steps=model.params['lr_decay_steps'],
             decay_rate=model.params['lr_decay_rate'],
 	)
 
-        optimizer  = tfa.optimizers.AdamW(learning_rate=lr, weight_decay=lambda: None)
+        optimizer  = tfa.optimizers.AdamW(
+            learning_rate=lr,
+            weight_decay=lambda: None,
+        )
         optimizer.weight_decay = lambda: wd_schedule(optimizer.iterations)
         
     elif model.params['optimizer'].upper() == 'SGD':
-        optimizer = tf.keras.optimizers.SGD(learning_rate=lr, momentum=0.9)
+        optimizer = tf.keras.optimizers.SGD(
+            learning_rate=lr,
+            momentum=0.9,
+        )
     else:
         print("Optimizer {:s} does not exist".format(params['optimizer']))
 
@@ -207,8 +212,8 @@ def train_model(train_data, val_data, test_data, model):
     
     ncolumn_loss = 4
     train_loss_hist = np.zeros((model.params['epochs'], ncolumn_loss))
-    val_loss_hist     = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
-    test_loss_hist     = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
+    val_loss_hist   = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
+    test_loss_hist  = np.zeros((model.params['epochs']//model.params['val_every'], ncolumn_loss))
 
     val_loss_min = 1.e9
     val_iteration = 0
@@ -253,7 +258,7 @@ def train_model(train_data, val_data, test_data, model):
             test_loss_hist[val_iteration, 2] = test_loss_terms[1].numpy()
             test_loss_hist[val_iteration, 3] = test_loss_terms[2].numpy()
 
-            print('\nepoch={:d}, time={:.3f}s\ntrain loss: {:.2E} {:.2E} {:.2E}\nval loss: {:.2E} {:.2E} {:.2E}\ntest loss: {:.2E} {:.2E} {:.2E}'.format(
+            print('\nepoch={:d}, time={:.3f}s\n (total_loss, loss_recon, loss_cov)\ntrain loss: {:.2E} {:.2E} {:.2E}\nval loss: {:.2E} {:.2E} {:.2E}\ntest loss: {:.2E} {:.2E} {:.2E}'.format(
                 epoch,
                 end_time-start_time,
                 training_loss_terms[0],
@@ -276,7 +281,7 @@ def train_model(train_data, val_data, test_data, model):
             previous_val_decrease = val_iteration - val_iteration_best # number of validation iterations since last loss decrease
 
             if val_loss.numpy() < val_loss_min:
-                print('Best test epoch so far. Saving model.')
+                print('Best validation epoch so far. Saving model.')
                 is_best = True
                 val_iteration_best = val_iteration
                 val_loss_min = min(val_loss_min, val_loss.numpy())

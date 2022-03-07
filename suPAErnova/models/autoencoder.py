@@ -38,7 +38,9 @@ class AutoEncoder(tf.keras.Model):
         self.bn_moving_means = bn_moving_means
 
         # activation functions
-        if params['activation'].upper()=='RELU':
+        if params['activation'].upper()=='TANH':
+            self.activation = tf.nn.tanh
+        elif params['activation'].upper()=='RELU':
             self.activation = tf.nn.relu
         elif params['activation'].upper()=='GELU':
             self.activation = tfk.activations.gelu
@@ -102,11 +104,12 @@ class AutoEncoder(tf.keras.Model):
 
         # add either convolutional or fully connected block
         encode_x = encode_inputs_data
+
         if self.params['layer_type'].upper() == 'DENSE':
             # Append time as additional parameter.
             # If convolutional layers, instead append after convolutions
             encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
-
+        
         for iunit, nunit in enumerate(self.params['encode_dims'][:-1]):
             # fully connected layer
             if self.params['layer_type'].upper()=='DENSE':
@@ -204,7 +207,6 @@ class AutoEncoder(tf.keras.Model):
 
                 # mask
                 encode_latent = encode_latent * latent_train_mask
-
                 encode_amplitude = encode_amplitude*0.
                 encode_dtime     = encode_dtime*0.
 
@@ -232,10 +234,22 @@ class AutoEncoder(tf.keras.Model):
                 encode_amplitude = tfkl.subtract([encode_amplitude, tf.Variable([self.bn_moving_means[1]])])
                 encode_color     = tfkl.subtract([encode_color, tf.Variable([self.bn_moving_means[2]])])
                 
-            encode_outputs = tfkl.concatenate([encode_dtime, encode_amplitude, encode_color, encode_latent])
+            encode_outputs = tfkl.concatenate([
+                encode_dtime,
+                encode_amplitude,
+                encode_color,
+                encode_latent,
+            ])
 
             
-        return tfk.Model(inputs=[encode_inputs_data, encode_inputs_cond, encode_inputs_mask], outputs=encode_outputs)
+        return tfk.Model(
+            inputs=[
+                encode_inputs_data,
+                encode_inputs_cond,
+                encode_inputs_mask,
+            ],
+            outputs=encode_outputs,
+        )
 
 
     def build_decoder(self):
@@ -271,9 +285,11 @@ class AutoEncoder(tf.keras.Model):
         else:
             decode_x = tfkl.concatenate([decode_latent, decode_inputs_cond])
 
-        decode_x = tfkl.Dense(self.params['decode_dims'][0],
-                                         activation=self.activation,
-                                         kernel_regularizer=self.kernel_regularizer)(decode_x)
+        decode_x = tfkl.Dense(
+            self.params['decode_dims'][0],
+            activation=self.activation,
+            kernel_regularizer=self.kernel_regularizer,
+        )(decode_x)
 
         # Add series of either convolutional or fully connected block
         for iunit, nunit in enumerate(self.params['decode_dims'][1:]):
@@ -351,7 +367,14 @@ class AutoEncoder(tf.keras.Model):
         if not self.training:
             decode_outputs = tf.nn.relu(decode_outputs)
             
-        return tfk.Model(inputs=[decode_inputs_latent, decode_inputs_cond, decode_inputs_mask], outputs=decode_outputs*decode_inputs_mask) 
+        return tfk.Model(
+            inputs=[
+                decode_inputs_latent,
+                decode_inputs_cond,
+                decode_inputs_mask,
+            ],
+            outputs=decode_outputs*decode_inputs_mask,
+        ) 
 
 
     def encode(self, x, cond, mask):

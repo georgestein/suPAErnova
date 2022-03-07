@@ -118,7 +118,9 @@ def main():
                                                                                                                                    test_data['mask'][dm])
 
 
-        tstrs = ['train', 'test']
+        #tstrs = ['train', 'test']
+        tstrs = ['train']
+        #tstrs = ['test']
         posterior_analysis.train(PAE, params, train_data, test_data, tstrs=tstrs)
 
 if __name__ == '__main__':

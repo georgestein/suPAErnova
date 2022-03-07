@@ -36,7 +36,7 @@ from . import losses
 from . import loader as model_loader
 
 
-def train_flow(train_data, params, verbose=False):
+def train_flow(train_data, test_data, params):
     """Train a simple MAF model for density estimation. 
     Can definitely be improved/should be later,
     as the flow does not always train well in high dimensions
@@ -57,7 +57,7 @@ def train_flow(train_data, params, verbose=False):
     print('Size of training data = ', z_latent.shape)
     layers_str = '-'.join(str(e) for e in params['encode_dims'])
     checkpoint_filepath = (f"{params['MODEL_DIR']}flow_kfold{params['kfold']}_{params['latent_dim']:02d}Dlatent_"
-                           + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}"
+                           + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}")
 
     cp_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
@@ -65,13 +65,13 @@ def train_flow(train_data, params, verbose=False):
             checkpoint_filepath,
         ),
         save_weights_only=True,
-        verbose=1,
-        save_freq=min(100, params['epochs_flow']),
+        verbose=params['verbose'],
+        save_freq=min(params['checkpoint_flow_every'], params['epochs_flow']),
     )
 
     earlystopping_callback = tf.keras.callbacks.EarlyStopping(
-        monitor='loss',
-        patience=25,
+        monitor='val_loss',
+        patience=params['patience'],
     )
 
     NFmodel, flow = flows.normalizing_flow(params, optimizer=optimizer)
@@ -79,12 +79,12 @@ def train_flow(train_data, params, verbose=False):
     NFmodel.fit(
         x=z_latent,
         y=tf.zeros((z_latent.shape[0], 0), dtype=tf.float32),
-        validation_split=params['val_frac'],
+        validation_split=params['val_frac_flow'],
         batch_size=params['batch_size'],
         epochs=params['epochs_flow'],
         steps_per_epoch=z_latent.shape[0]//params['batch_size'], 
         shuffle=True,
-        verbose=verbose,
+        verbose=params['verbose'],
         callbacks=[cp_callback, earlystopping_callback],
     )
 

@@ -14,11 +14,12 @@ pae: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  #out_file_tail: '_3stage_train_decorrelate_all_seed6_new' 
-  out_file_tail: 'test'
+  out_file_tail: '3stage_train_decorrelate_all_seed0' #_nosigmaweight_smallcov' 
+  #out_file_tail: 'test'
 
   # Outputs
-  model_summary: !!bool True
+  verbose: !!bool True
+  model_summary: !!bool False
   savefig: !!bool False
   savemodel: !!bool True  
   print_params: !!bool True
@@ -31,11 +32,7 @@ pae: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  #encode_dims: [64, 32, 16]
-  #decode_dims: [16, 32, 64]
-  #encode_dims: [16, 8, 8]
-  #decode_dims: [8, 8, 16]
-  latent_dims: [3] #,2,1,4] #, 2, 1, 4] 
+  latent_dims: [0,1,2] #,2,1,4] #, 2, 1, 4] 
 
   #layer_type: 'convolution'
   layer_type: 'dense'
@@ -51,8 +48,8 @@ pae: &DEFAULT
   decorrelate_all: !!bool True
 
   # Loss functions
-  loss_fn: 'HUBER' #'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, HUBER, magnitude
-  clip_delta: !!float 10.0
+  loss_fn: 'WHUBER' #'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, (HUBER or WHUBER), magnitude
+  clip_delta: !!float 25.
   
   iloss_reconstruction: !!bool True
   iloss_covariance: !!bool True
@@ -65,14 +62,15 @@ pae: &DEFAULT
   lambda_amplitude_offset: !!float 500.
   
   # AE Training
-  val_frac: !!float 0.33 # Fraction of training data to put in validation set
-  epochs: 1000 #500 #0 
-  epochs_latent: 2500 #2500 #0
-  epochs_final: 2500 #2500 #2500 
-  val_every: 100 #0 #0
+  epochs: 1000 
+  epochs_latent: 1000
+  epochs_final: 5000 
+  val_every: 100
   seed: 13579
-  batch_size: 57 
-  overfit: !!bool True # Save model at last epoch
+  batch_size: 57
+  val_frac: !!float 0.33
+  overfit: !!bool True # Save/use model at last epoch, rather than "best" checkpoint
+  use_val: !!bool False # Split off validation set from test
 
   set_data_min_val: !!float 0.0
   min_train_redshift: !!float 0.02
@@ -84,21 +82,23 @@ pae: &DEFAULT
   
   dropout: !!bool False
   batchnorm: !!bool False
-  kernel_regularizer: !!bool False #True
-  train_noise: !!bool True        # resample data within measurement errors
+  kernel_regularizer: !!bool False # True
+  train_noise: !!bool True         # resample data within measurement errors
   train_time_uncertainty: !!bool True        # resample data within measurement errors	
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
   multistage_training: !!bool True # Trains in 3 stages. The first does not allow the amplitude term to vary, the second does, and the third allows for a delta time parameter
   
-  optimizer: 'ADAMW' # ADAM, ADAMW, SGD
+  optimizer: 'ADAMW' # ADAM, ADAMW
   scheduler: 'EXPONENTIAL' # None, exponential
-  activation: 'RELU' # RELU, ELU, GELI, SWISH
-  lr: !!float 0.01
-  lr_deltat: !!float 0.01
+
+  activation: 'RELU' # TANH, RELU, ELU, GELI, SWISH
+  lr: !!float 0.005
+  lr_deltat: !!float 0.001
   lr_decay_rate: !!float 0.95
-  lr_decay_steps: 100
+  lr_decay_steps: 300
+  weight_decay_rate: !!float 0.0001
   dropout_rate: !!float 0.2
-  kernel_regularizer_val: !!float 10.0
+  kernel_regularizer_val: !!float 100.0
   noise_scale: !!float 1.0        # in units of observation uncertainty 
   time_scale: !!float 0.3         # in days 
   mask_vary_frac: !!float 0.1
@@ -109,6 +109,9 @@ pae: &DEFAULT
 
   # Training
   epochs_flow: 500
+  checkpoint_flow_every: 10
+  val_frac_flow: !!float 0.22 #33
+  patience: 30
   use_extrinsic_params: !!bool True # Use A_v in flow
   batchnorm_flow: !!bool False
 

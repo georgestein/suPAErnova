@@ -36,7 +36,7 @@ from . import loader as model_loader
 from . import posterior
 from . import flows
 
-def find_MAP(model, params, verbose=False):
+def find_MAP(model, params):
 
     ind_amplitude = 0
     ind_dtime = 0
@@ -130,9 +130,9 @@ def find_MAP(model, params, verbose=False):
         )#,
                                                #max_line_search_iterations=params['max_line_search_iterations'])
 
-        if verbose: tf.print(results.converged)
-        if verbose: tf.print("Function evaluations: {0}".format(results.num_objective_evaluations))
-        if verbose: tf.print("Function minimum: {0}".format(results.objective_value))
+        if params['verbose']:
+            tf.print(f"MAP initialization {ichain} converged. Num function evaluations: {results.num_objective_evaluations}")
+            #tf.print("Function minimum: {0}".format(results.objective_value))
 
         if ichain == 0:
             # initialize amplitude and dtime
@@ -206,7 +206,7 @@ def find_MAP(model, params, verbose=False):
 
     return model
 
-def run_HMC(model, params, verbose=False):
+def run_HMC(model, params):
     # Initialize the HMC transition kernel.
     # @tf.function(autograph=False)
 
@@ -220,7 +220,7 @@ def run_HMC(model, params, verbose=False):
         initial_position = np.c_[tf.convert_to_tensor(model.dtime).numpy()*params['dtime_norm'], initial_position]
 
     step_sizes = tf.zeros([initial_position.shape[0], initial_position.shape[1]]) + model.z_latent_std
-    print('Initial step sizes', step_sizes)
+    #print('Initial step sizes', step_sizes)
 
     unnormalized_posterior_log_prob = lambda *args: model(*args)
 
@@ -280,7 +280,7 @@ def run_HMC(model, params, verbose=False):
     end = time.time()
 
     print('{:.2f} s elapsed for {:d} samples'.format(end-start, params['num_samples']+params['num_burnin_steps']))
-    print('Fraction of accepted = ', np.mean(is_accepted), np.mean(is_accepted, axis=0))
+    #print('Fraction of accepted = ', np.mean(is_accepted), np.mean(is_accepted, axis=0))
 
     return samples, step_sizes_final, is_accepted
     
@@ -341,7 +341,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 
             if params['find_MAP']:
                 # Find MAP
-                log_posterior = find_MAP(log_posterior, params, verbose=True)
+                log_posterior = find_MAP(log_posterior, params)
 
                 # Save desired outputs in dictionary
                 data_map_batch['chain_min'] = log_posterior.chain_min
@@ -363,15 +363,16 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
                 data_map_batch['logp_z_latent_map'] = log_posterior.flow.log_prob(log_posterior.get_z()[:, log_posterior.istart_map:])
                 data_map_batch['logp_u_latent_map'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
                 data_map_batch['logJ_u_latent_map'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()
+
                 
-                tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(
-                    log_posterior.num_evaluations,
-                    log_posterior.amplitude,
-                    log_posterior.dtime/params['dtime_norm']*50),
-                )
+                #tf.print('evaluation stop={0}:\namplitude: {1}\ndtime {2}'.format(
+                #    log_posterior.num_evaluations,
+                #    log_posterior.amplitude,
+                #    log_posterior.dtime/params['dtime_norm']*50),
+                #)
                 
             if params['run_HMC']:
-                samples, step_sizes_final, is_accepted = run_HMC(log_posterior, params, verbose=True)            
+                samples, step_sizes_final, is_accepted = run_HMC(log_posterior, params)            
 
                 z_samples = log_posterior.flow.bijector.forward(
                     samples[:, :, log_posterior.istart_map:].reshape(-1, log_posterior.latent_dim_u)).numpy().reshape(samples.shape[0], samples.shape[1], log_posterior.latent_dim_u)
@@ -417,7 +418,7 @@ def train(PAE, params, train_data, test_data, tstrs=['train', 'test']):
 
                 data_map_batch['spectra_mcmc'] = log_posterior.fwd_pass().numpy()
 
-                print(log_posterior.MAPu)
+                #print(log_posterior.MAPu)
                 data_map_batch['logp_z_latent_mcmc'] = log_posterior.flow.log_prob(log_posterior.MAPz[:, log_posterior.istart_map:])
                 data_map_batch['logp_u_latent_mcmc'] = np.log(1./np.sqrt(2*np.pi) * np.exp(-1./2 * np.sum(log_posterior.MAPu**2, axis=1)))
                 data_map_batch['logJ_u_latent_mcmc'] = log_posterior.flow.bijector.forward_log_det_jacobian(log_posterior.MAPu, event_ndims=1).numpy()

@@ -6,27 +6,36 @@ import os
 
 from . import flows
 
-def load_ae_models(params, verbose=False):
+def load_ae_models(params):
     """load encoder and decoder models"""                                                                                 
     ae_model_params_fname = 'AE_kfold{:d}_{:02d}Dlatent_layers{:s}_{:s}'.format(params['kfold'],
                                                                           params['latent_dim'],
                                                                            '-'.join(str(e) for e in params['encode_dims']),
-                                                                          params['out_file_tail'])
+                                                                                params['out_file_tail'],
+    )
 
 
-    model_params_out_path = os.path.join(params['PROJECT_DIR'], f"{params['PARAM_DIR']}{ae_model_params_fname}.npy" )
-    if verbose: print(model_params_out_path)
+    model_params_out_path = os.path.join(params['PROJECT_DIR'], f"{params['PARAM_DIR']}{ae_model_params_fname}" )
+    if not params['overfit']:
+        model_params_out_path += "_best"
+
+    model_params_out_path += ".npy"
+    
+    if params['verbose']: 
+        print("loading AE model from: ", model_params_out_path)
 
     AE_model_params = np.load(model_params_out_path,
                               allow_pickle='TRUE').item()
 
-    if verbose: print(AE_model_params)
+    if params['verbose']:
+        print("AE model params: ", AE_model_params)
 
+    print("\n\n\n\n\n", AE_model_params['encoder'])
     encoder = tfk.models.load_model(AE_model_params['encoder'], compile=False)
     decoder = tfk.models.load_model(AE_model_params['decoder'], compile=False)
     AE_params = AE_model_params['parameters']
 
-    if params['model_summary'] and verbose:
+    if params['model_summary'] and params['verbose']:
         print("Encoder Summary")
         encoder.summary()
 
@@ -45,6 +54,9 @@ def load_flow(params):
                                                                                       params['out_file_tail'])
 
     checkpoint_filepath = os.path.join(params['PROJECT_DIR'], checkpoint_filepath)
+
+    if params['verbose']:
+        print("loading flow from ", checkpoint_filepath)
 
     NFmodel, flow = flows.normalizing_flow(params)
     NFmodel.load_weights(checkpoint_filepath)

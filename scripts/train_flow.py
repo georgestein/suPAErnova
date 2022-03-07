@@ -39,7 +39,6 @@ from suPAErnova.models import flow_training
 from suPAErnova.models import losses
 from suPAErnova.models import loader as model_loader
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
     
@@ -110,10 +109,9 @@ def main():
         # Saved on checkpoint, so no need to save again
         NFmodel, flow = flow_training.train_flow(
             train_data,
-            val_data,
             test_data,
             params,
-            verbose=True)
+            )
 
 if __name__ == '__main__':
     main()

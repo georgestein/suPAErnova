@@ -6,28 +6,28 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=20
-#SBATCH -o sout/train_multiseed_3dim_newcolorlaw.out
+#SBATCH -o sout/train_multiseed_3dim_newcolorlaw_newtrain%j.out
 
 conda activate tfp
 
-iseed=6
-seed=43579
-numruns=8
+iseed=0
+seed=13579
+numruns=1
 
 while [ $iseed -lt $numruns ]
 do
+    
+    #cp ../config/train_REPLACE.yaml ../config/train.yaml 
+    #sed -i "s/SEEDREPLACE/$seed/g" ../config/train.yaml
+    #sed -i "s/ISREPLACE/$iseed/g" ../config/train.yaml
 
-    cp ../config/train_REPLACE.yaml ../config/train.yaml 
-    sed -i "s/SEEDREPLACE/$seed/g" ../config/train.yaml
-    sed -i "s/ISREPLACE/$iseed/g" ../config/train.yaml
+    #srun python train_ae.py
 
-    srun python train_ae.py
+    #cp ../config/train_REPLACE.yaml ../config/train.yaml 
+    #sed -i "s/SEEDREPLACE/$seed/g" ../config/train.yaml
+    #sed -i "s/ISREPLACE/$iseed/g" ../config/train.yaml
 
-    cp ../config/train_REPLACE.yaml ../config/train.yaml 
-    sed -i "s/SEEDREPLACE/$seed/g" ../config/train.yaml
-    sed -i "s/ISREPLACE/$iseed/g" ../config/train.yaml
-
-    srun python train_flow.py 
+    #srun python train_flow.py 
 
     cp ../config/posterior_analysis_REPLACE.yaml ../config/posterior_analysis.yaml 
     sed -i "s/SEEDREPLACE/$seed/g" ../config/posterior_analysis.yaml
