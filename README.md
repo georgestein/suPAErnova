@@ -12,6 +12,9 @@ Activate conda environment, and install suPAErnova package in your python enviro
 
 `python setup.py`
 
+## Examine data and make plots
+
+See examples in **notebooks/plots\_and\_analysis.ipynb**
 
 ## Training a new PAE model on your dataset
 This requires 3 steps:
