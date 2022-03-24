@@ -4,7 +4,13 @@ This repository contains the codes required to the train models and perform anal
 ![alt text](figures/network_illustration.png)
 
 ## Installation
-``conda env create -f environment.yml``
+Install the package reqirements with conda
+
+`conda env create -f environment.yml`
+
+Activate conda environment, and install suPAErnova package in your python environment
+
+`python setup.py`
 
 
 ## Training a new PAE model on your dataset
