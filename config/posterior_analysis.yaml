@@ -17,8 +17,8 @@ model: &DEFAULT
 
   #out_file_tail: 'test'
   #posterior_file_tail: 'test'
-  out_file_tail: '3stage_train_decorrelate_all_seed0' 
-  posterior_file_tail: '3stage_train_decorrelate_all_seed0' #_longchain'
+  out_file_tail: '3stage_train_decorrelate_all_seed2' 
+  posterior_file_tail: '3stage_train_decorrelate_all_seed2' #_longchain'
 
   # Outputs
   model_summary: !!bool True
@@ -34,7 +34,7 @@ model: &DEFAULT
   # AE model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [0,1,2]
+  latent_dims: [3]
 
   physical_latent: !!bool True
   colorlaw_preset: !!bool True
@@ -78,7 +78,7 @@ posterior:
   dtime_norm: 1.0
   target_accept_rate: 0.651 # modifies step size to try to reach this target
 
-  seed: 13579  
+  seed: 23581  
   batch_size: 171
   
   train_noise: !!bool False        # resample data within measurement errors

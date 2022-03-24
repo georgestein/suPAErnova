@@ -125,7 +125,7 @@ def main():
             # Load best checkpoint from step 0 training
             encoder, decoder, AE_params = model_loader.load_ae_models(params)
     
-            final_dense_layer = len(params['encode_dims']) + 3 
+            final_dense_layer = len(params['encode_dims']) + 4
 
             final_layer_weights = encoder.layers[final_dense_layer].get_weights()[0]
             final_layer_weights_init =  AEmodel_second.encoder.layers[final_dense_layer].get_weights()[0]

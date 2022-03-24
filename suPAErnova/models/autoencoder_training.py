@@ -62,7 +62,7 @@ def train_step(model, optimizer, compute_apply_gradients_ae, epoch, nbatches, tr
             # np.take(mask_vary[i:i+1,:nii], np.random.rand(nii).argsort(), axis=1, out=mask_vary[i:i+1,:nii])
 
     mask_vary[~train_data['mask_sn']] = 0.
-    mask_vary[~train_data['mask_spectra']] = 0.
+    mask_vary[~train_data['mask_spectra'][..., 0]] = 0.
 
     # Vary phase by observational uncertainty
     dtime = np.zeros(train_data['times'].shape[0], dtype=np.float32)
@@ -111,7 +111,7 @@ def test_step(model, data):
     """Calculate test loss"""
     mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
     mask_vary[~data['mask_sn']] = 0.
-    mask_vary[~data['mask_spectra']] = 0.
+    mask_vary[~data['mask_spectra'][..., 0]] = 0.
 
     test_loss, test_loss_terms = losses.compute_loss_ae(
         model,
@@ -131,7 +131,7 @@ def calculate_mean_parameters_batches(model, data, nbatches):
 
     mask_vary = np.ones(data['mask'].shape, dtype=np.float32)
     mask_vary[~data['mask_sn']] = 0.
-    mask_vary[~data['mask_spectra']] = 0.
+    mask_vary[~data['mask_spectra'][..., 0]] = 0.
 
     dtime_mean = 0
     amp_mean = 0

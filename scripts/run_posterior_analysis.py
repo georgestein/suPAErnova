@@ -110,6 +110,7 @@ def main():
                                                                                                                                     train_data['sigma'][dm], 
                                                                                                                                     train_data['times'][dm],
                                                                                                                                      train_data['mask'][dm])
+        
         dm = test_data['mask_sn']
         test_data['sigma_ae_time'], ae_noise_t_bin_edge, test_data['sigma_ae_time_tbin_cent'] = calculations.compute_sigma_ae_time(test_data['spectra'][dm],
                                                                                                      test_data['spectra_ae'][dm],
@@ -118,8 +119,8 @@ def main():
                                                                                                                                    test_data['mask'][dm])
 
 
-        #tstrs = ['train', 'test']
-        tstrs = ['train']
+        tstrs = ['train', 'test']
+        #tstrs = ['train']
         #tstrs = ['test']
         posterior_analysis.train(PAE, params, train_data, test_data, tstrs=tstrs)
 

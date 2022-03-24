@@ -100,7 +100,7 @@ class AutoEncoder(tf.keras.Model):
     
         encode_inputs_data = tfkl.Input(shape=(self.params['n_timestep'], self.params['data_dim']))
         encode_inputs_cond = tfkl.Input(shape=(self.params['n_timestep'], self.params['cond_dim']))
-        encode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], 1))
+        encode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], self.params['data_dim']))
 
         # add either convolutional or fully connected block
         encode_x = encode_inputs_data
@@ -184,7 +184,9 @@ class AutoEncoder(tf.keras.Model):
         )(encode_x)
         
         # Need to mask time samples that do not exist = take mean of non masked latent variables
-        encode_outputs = tf.reduce_sum(encode_x*encode_inputs_mask, axis=-2)/tf.math.maximum(tf.reduce_sum(encode_inputs_mask, axis=-2), 1) 
+        # return is_kept: (N_sn, N_spectra) = 0 if any wavelength bin was masked, as bad value will effect encoding
+        is_kept = tf.reduce_min(encode_inputs_mask, axis=-1, keepdims=True)
+        encode_outputs = tf.reduce_sum(encode_x*is_kept, axis=-2)/tf.math.maximum(tf.reduce_sum(is_kept, axis=-2), 1)
 
         if self.params['physical_latent']:
             encode_dtime     = encode_outputs[..., 0:1] # delta time
@@ -218,7 +220,7 @@ class AutoEncoder(tf.keras.Model):
             # This roundabout way is required due to the dreaded TensorFlow error:
             # TypeError: 'Tensor' object does not support item assignment    
             if self.training:
-                is_kept = tf.reduce_max(encode_inputs_mask[:, :, 0], axis=-1)
+                is_kept = tf.reduce_max(is_kept[..., 0], axis=-1)
                 
                 batch_mean_dtime = tf.reduce_sum(encode_dtime * is_kept, axis=0)/tf.reduce_sum(is_kept)
                 encode_dtime = tfkl.subtract([encode_dtime, batch_mean_dtime])
@@ -263,7 +265,7 @@ class AutoEncoder(tf.keras.Model):
 
         decode_inputs_latent = tfkl.Input(shape=(self.params['latent_dim']+self.num_physical_latent_dims,), name='latent_params')
         decode_inputs_cond   = tfkl.Input(shape=(self.params['n_timestep'], self.params['cond_dim']), name='conditional_params')
-        decode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], 1))
+        decode_inputs_mask = tfkl.Input(shape=(self.params['n_timestep'], self.params['data_dim']))
 
         # Repeat latent vector to match number of data timesteps
         decode_latent = tfkl.RepeatVector(self.params['n_timestep'])(decode_inputs_latent)
@@ -373,7 +375,7 @@ class AutoEncoder(tf.keras.Model):
                 decode_inputs_cond,
                 decode_inputs_mask,
             ],
-            outputs=decode_outputs*decode_inputs_mask,
+            outputs=decode_outputs*tf.reduce_max(decode_inputs_mask, axis=-1, keepdims=True), # zero spectra that do not exist
         ) 
 
 

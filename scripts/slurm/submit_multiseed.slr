@@ -10,9 +10,9 @@
 
 conda activate tfp
 
-iseed=0
-seed=13579
-numruns=1
+iseed=5
+seed=23579
+numruns=6
 
 while [ $iseed -lt $numruns ]
 do

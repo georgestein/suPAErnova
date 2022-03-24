@@ -144,8 +144,10 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         #    z_cov = z[:, 1:] # don't use amplitude == 0
         
         z_cov = z #[:, 1:]
-            
-        is_kept = tf.reduce_max(mask, axis=-2)
+
+        is_kept = tf.reduce_min(mask, axis=-1, keepdims=True)
+        is_kept = tf.reduce_max(is_kept, axis=-2)
+
         num_kept = tf.cast(tf.reduce_sum(is_kept), tf.float32)
         mean_z = tf.reduce_sum(z_cov*is_kept, axis=0, keepdims=True)/num_kept
 

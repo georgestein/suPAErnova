@@ -16,7 +16,7 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
     """
 
     relative = True
-    dm = mask[:, :, 0] == 1.
+    dm = np.max(mask, axis=-1) == 1. # keep all spectra that have any portion unmasked (=1)
     dtbin = 0.1
     tmax = 1.0
     tmin = 0.0
@@ -29,7 +29,7 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
     s0 = spec_true[dm].copy()
     s1 = spec_pred[dm].copy()  
     sig = sigma[dm].copy()
-
+    m   = mask[dm].copy()
     t   = time[dm][:,0]
     
     s0 = np.reshape(s0, (-1, 288))
@@ -63,7 +63,7 @@ def compute_sigma_ae_time(spec_true, spec_pred, sigma, time, mask, weighted=Fals
         indgt = np.greater(msei, maxval)
 
         # mask values greater than outlier_cut
-        mask = np.ones(msei.shape)
+        mask = m[dm]
         mask[indgt] = 0. 
 
         if not relative:

@@ -43,11 +43,14 @@ class LogPosterior(tfk.Model):
         self.x_c = data['times']     # conditional paramater
         self.z_c = data['redshift']  # redshift
         self.sigma_x = data['sigma'] # sigma noise
-        self.mask_x  = data['mask']  # some spectra may be missing 
+        self.mask_x  = data['mask']  # some spectra may be missing, or wavelength bins masked 
 
         self.nsamples      = self.x.shape[0]
         self.n_timesamples = self.x.shape[1]
         self.data_dim      = self.x.shape[2]
+
+        # if whole spectrum is masked then discard, else use, even if partial is masked
+        self.use_spectra = tf.reduce_min(self.mask_x, axis=-1)
 
         # number of spectra that exist in observation
         n_spectra_each = [np.shape(np.where(self.x[i, :, 0] > -1))[1] for i in range(self.x.shape[0])] 
@@ -146,7 +149,7 @@ class LogPosterior(tfk.Model):
 #                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0]*dtime_mask[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
         log_posterior  = (latent_prior.log_prob(self.MAPu)
-                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.mask_x[..., 0], axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
+                          + tf.reduce_sum(likelihood.log_prob(self.x*self.mask_x)*self.use_spectra, axis=1)/self.n_spectra) #+ dtime_prior.log_prob(self.dtime)
 
 #             # get log_prob for each spectra, so can ignore ones with worst fit
 #             l_spec = likelihood.log_prob(x[:,:self.n_spectra])/self.n_spectra

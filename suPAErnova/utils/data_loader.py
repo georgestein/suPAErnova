@@ -31,9 +31,9 @@ def load_data(filename, remove_negatives=True, scale_sigma_observed=True, set_da
     if print_params:
         print(data.keys())
 
-    #if remove_negatives:
+    # if remove_negatives:
     # remove negative flux values in observed spectrum
-    dm = data['mask'][..., 0] == 1
+    dm = data['mask'] == 1
     data['spectra'][dm] = np.clip(data['spectra'][dm], set_data_min_val, np.inf)
 
     if scale_sigma_observed:
