@@ -14,7 +14,7 @@ pae: &DEFAULT
   kfold: 0
   colorlaw_file: 'data/F99_colorlaw.txt'
 
-  out_file_tail: '3stage_train_decorrelate_all_seed3' #_nosigmaweight_smallcov' 
+  out_file_tail: '3stage_train_decorrelate_all_seed0'
   #out_file_tail: 'test'
 
   # Outputs
@@ -32,7 +32,7 @@ pae: &DEFAULT
   # Model architecture
   encode_dims: [256, 128, 32]
   decode_dims: [32, 128, 256]
-  latent_dims: [3] #,2,1,4] #, 2, 1, 4] 
+  latent_dims: [3]
 
   #layer_type: 'convolution'
   layer_type: 'dense'
